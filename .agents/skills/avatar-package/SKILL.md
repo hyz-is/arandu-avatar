@@ -1,6 +1,6 @@
 ---
 name: avatar-package
-description: Install, wire and use the Arandu Avatar package (Go, Arandu) in an application. Use when the request is to "install Arandu Avatar", "add avatar to the app", "go get github.com/hyz-is/arandu-avatar", "wire it into bootstrap/app.go", "register the module", "use the avatar routes", "everything under /avatar returns 403", "403 forbidden from avatar", "it redirects to /auth/login", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", or when a project's go.mod already requires github.com/hyz-is/arandu-avatar. Covers the three lines of wiring and where each one goes, the Config fields, none of them required, the routes, their names and the session they need, why the policy refuses everything until somebody opens it, and the migration step that is not optional.
+description: Install, wire and use Arandu Avatar (Go, Arandu) in an application. Use when the request is to "install arandu-avatar", "add avatars", "add the profile picture", "let people upload a photo", "show the avatar in the menu", "put the company logo", "go get github.com/hyz-is/arandu-avatar", "wire it into bootstrap/app.go", "the avatar editor looks unstyled", "no such table avatars", "403 from /avatars", "the photo does not show", "Gravatar", or when a project's go.mod already requires github.com/hyz-is/arandu-avatar. Covers the lines of wiring and where each goes, the Directory the application implements, the one line for the layout, drawing an avatar and the editor, the migration step that is not optional, and the symptoms.
 license: MIT
 metadata:
   audience: app
@@ -8,35 +8,45 @@ metadata:
 
 # Using Arandu Avatar
 
-An Arandu package with one entity, its own table, its own routes and its own
-policy. It is registered by hand — there is no service provider, no container
-and no discovery, so if a line is not written in the application, it does not
-happen.
+The avatar of the people of an application, and the logo of its companies'
+spaces: a photo they send, their Gravatar if they switch it on, or a drawing made
+from their name. It is registered by hand: there is no service provider, no
+container and no discovery, so if a line is not written in the application, it does
+not happen.
 
 ## Install
 
 ```bash
-go get github.com/hyz-is/arandu-avatar
+go get github.com/hyz-is/arandu-avatar@latest   # check gh release list -R hyz-is/arandu-avatar first
+aru migrate
 ```
 
-## The three lines of wiring, and where each one goes
+## The wiring, and where each part goes
 
-All three are in `bootstrap/app.go`. Nothing else in the application changes,
-and `aru make:module` does not edit this file for you.
+All of it is in `bootstrap/app.go`. `aru make:module` does not edit it.
 
-The import, with the other module imports:
+The imports. The components are imported under another name, because the project
+already imports Kyse's `components`:
 
 ```go
 import (
 	avatar "github.com/hyz-is/arandu-avatar"
+	avatarui "github.com/hyz-is/arandu-avatar/components"
 )
 ```
 
-The construction, in `Build`, after the session store exists and before
-`k.Register`:
+The construction, in `Build`, after the session store, the private disk and the
+activity log exist and before `k.Register`:
 
 ```go
-	avatarModule, err := avatar.New(avatar.Config{}, db, sessions)
+	avatarModule, err := avatar.New(avatar.Config{
+		TeamTenant: cfg.Auth.Tenant,
+		Directory:  accountDirectory{db: db},
+		Files:      disk,
+		Activity:   activityModule.Logger(),
+		Render:     avatarui.Render, // components.Render
+		Middleware: []func(http.Handler) http.Handler{permissionModule.Roles()},
+	}, db, sessions)
 	if err != nil {
 		return App{}, err
 	}
@@ -48,137 +58,85 @@ And the registration, inside the `k.Register(...)` call already there:
 		avatarModule,
 ```
 
-`New` returns an error rather than starting half-wired. It refuses a
-configuration that cannot work, a nil database handle and a nil session store,
-so a wiring mistake costs one restart instead of arriving as a nil dereference
-on the first request that needed it.
+`New` refuses a configuration that cannot work, a nil database and a nil session
+store, so a wiring mistake costs one restart.
 
-## Then run the migrations
+- **`Directory`** is `avatar.Directory`: `Owner(ctx, g, ref)` answers a user or an
+  organization **in the tenant of `g`**, or `avatar.ErrUnknownOwner`. Look the owner
+  up with the Grant, never with an identifier from the request.
+- **`Files`** is the application's `Disk`; in production the private R2 bucket
+  (`FILESYSTEM_DISK=r2`). Nil turns uploads and Gravatar off and the drawing still
+  works. Never point it at a public bucket address.
+- **`Render`** is `components.Render`: how a change answers an htmx request.
+- Mount `arandu-permission`'s `Roles()` in `Middleware`, so the subject carries the
+  actions it resolves. Declare `avatar.Actions()` and `avatar.TeamActions()` in the
+  permission catalogue; give the team's only to the team's groups.
+- `Prefix` and `Paths` (`avatar.PortuguesePaths`) choose the addresses; `Locale`
+  `pt-BR` is the default and `en` ships.
 
-```bash
-aru migrate
-```
+## One line in the layout
 
-Not optional, and not automatic. The package owns a table, which is why its
-`arandu.mod.toml` declares `migrations = true` — that declaration is how an
-installer finds out before deploying rather than from the first request.
-
-`aru migrate` is a step in the pipeline and never a call at the start of the
-process: with N replicas, N migrations race each other.
-
-**Symptom to recognise:** `no such table`, or `relation does not exist`, from a
-route that authorized correctly. The migration has not run.
-
-## Configuration
-
-| field | required | meaning |
-| --- | --- | --- |
-| `Prefix` | no | where the routes are mounted. Defaults to `/avatar` |
-| `PageSize` | no | how many records one page answers with. Defaults to 25, refused above 200 |
-
-`avatar.Config{}` is a complete configuration. There is no tenant to pass:
-every route needs a session, and the tenant of every statement comes from
-`data.Tenant(g)`, off the Grant of whoever is signed in. Passing a value the
-request named — a path segment, a header, a subdomain read off the URL — is what
-`TestNoTenantIsReadOutOfTheRequest` fails on in the package. In an application
-the same mistake is `aru doctor`'s `tenant-from-request`; in a package nothing
-but the package's own suite looks.
-
-`PageSize` above 200 is an error from `New`, not a silent 200. A number somebody
-wrote and did not get is worse than a number somebody wrote and was told about.
-
-## Routes
-
-| method | path | name |
-| --- | --- | --- |
-| `GET` | `/avatar` | `avatar.index` |
-| `GET` | `/avatar/{id}` | `avatar.show` |
-| `POST` | `/avatar` | `avatar.store` |
-
-Every route sits behind `RequireAuth`, mounted by the package itself. A request
-with no session is sent to `/auth/login` — 303, or `HX-Redirect` for an htmx
-request — and comes back to the address it asked for after signing in. That is
-the sign-in screen the starter kit publishes; an application without one sees
-a 404 there.
-
-**Symptom to recognise:** every route of the package redirects to
-`/auth/login`. Nobody is signed in on that request: the session cookie did not
-arrive, or the session store passed to `New` is not the one the application
-signs people in with.
-
-Build URLs from the names, never by writing the path a second time. `aru
-route:list` shows them grouped by module. Under a custom `Prefix` the paths move
-and the names do not.
-
-`GET /avatar` answers `{"data": {"items": [...]}}`, and adds
-`"next_cursor"` beside `data` when a further page exists. Pass it back as
-`?cursor=`. A page shorter than `PageSize` is the last one and carries no
-cursor.
-
-`TenantID` is not in any response. That is deliberate: it names a customer's
-identifier and the response is a declared list of fields rather than the entity.
-
-## Every route refuses everybody, until you open the policy
-
-This is the state the package ships in, and it is not a bug to work around.
-`AvatarPolicy` denies every action and has no branch that allows one:
-
-```
-403 Forbidden
-```
-
-is what a correctly installed, correctly migrated, correctly wired package
-answers to an administrator who is signed in, on day one.
-
-Opening an action means writing the rule that opens it, in the package's
-`policy.go`, inside the block that says so:
+In the `<head>`, once:
 
 ```go
-	// arandu:begin custom
-	if a == AvatarView && (s.ID == record.ID || s.HasRole("admin")) {
-		return nil
-	}
-	// arandu:end custom
+{!! avatar.Assets() !!}
 ```
 
-What is not written there stays closed, including every action added later.
-There are five actions — `AvatarView`, `AvatarList`, `AvatarCreate`,
-`AvatarUpdate`, `AvatarDelete` — and opening one opens exactly one.
+It writes the stylesheet and the script from the application's own origin, which the
+strict CSP allows. Without it an avatar is drawn but unstyled, and the editor has no
+cropper. `AvatarEditor` writes them itself unless `NoAssets`; `AvatarImage` only with
+`WithAssets`.
 
-**Do not open it from the application.** There is no hook, no override and no
-config flag for the policy, and adding one would be a second place where
-authorization is decided. If the rules this application needs are not the rules
-the package ships, the change belongs in the package.
+## Draw an avatar
 
-## What the answers mean
+Ask for every person the page draws in one call, and draw them:
 
-| status | what happened |
+```go
+pictures, err := avatarModule.Resolve(ctx.Ctx(), who,
+	avatar.Owner{Ref: avatar.User(u.ID), Name: u.Name, Email: u.Email})
+```
+
+```go
+{!! avatarui.AvatarImage(avatarui.AvatarImageProps{Picture: .Pictures.Of(avatar.User(u.ID)), Size: "sm"}) !!}
+```
+
+Sizes `xs sm md lg xl 2xl`. `Alt: "-"` when the name is written beside it. For just an
+address, `avatarModule.URL(ctx, who, owner, 64)`.
+
+## The editor
+
+```go
+editor, err := avatarModule.Editor(ctx.Ctx(), who, avatar.User(who.ID))
+```
+
+```go
+{!! avatarui.AvatarEditor(avatarui.AvatarEditorProps{Page: .Page, Editor: .AvatarEditor}) !!}
+```
+
+`Dialog: true` draws a button with the avatar that opens it in a dialog. With
+`avatar.Organization(id)` it is the logo's editor, and it shows nothing to press to
+a subject that cannot change it.
+
+## The policy is not open by guesswork
+
+- A person changes **their own** avatar with no group. Anybody signed in to the space
+  reads the space's avatars. A guest has none.
+- The logo of an organization needs `avatar.manage_organization`. The platform team
+  needs `avatar.view_all` and `avatar.manage_all`, in `TeamTenant`.
+- The tenant is always the session's Grant. A request for an owner of another space
+  is a `404`, the same as one that does not exist.
+
+## Symptoms
+
+| you see | it is |
 | --- | --- |
-| `303` to `/auth/login` | there is no session on the request |
-| `403` | the policy refused, or no rule allows the action yet |
-| `404` | no row with that id in this tenant |
-| `303` back to the page the request came from | the input was rejected; the messages and what was typed are in the flash |
-| `422` `application/problem+json` | the input was rejected and the request asked for JSON; the messages are in `errors`, keyed by field |
-
-A request that asks for JSON (an `Accept` naming `application/json`, or an XHR
-that is not htmx) gets the 403 and the 404 as problem documents too. The
-sign-in redirect is the same for every client.
-
-The package does not choose these: its handlers return what the service
-returned, and the framework's router answers it. A refusal carries no detail
-beyond the status and its standard sentence. Telling a client why a policy said
-no tells it what exists and what does not, one request at a time. The reason is
-in the log.
-
-Anything else is a 500 and the framework's error page in development. The
-package returns unexpected errors rather than swallowing them, so a route that
-answers 200 with an empty body is not something it does.
-
-## Reporting a problem
-
-Issues and pull requests go to the repository the module path names,
-`github.com/hyz-is/arandu-avatar`, which belongs to `hyz-is`. A vulnerability goes to the
-private advisory form named in that repository's `SECURITY.md`, and never into
-an issue.
-
-MIT licensed. Copyright HYZIS.
+| `no such table`, `relation "avatars" does not exist` | `aru migrate` was not run. It is never run at boot |
+| every route redirects to `/auth/login` | no session: every route sits behind `RequireAuth` |
+| `403` on the logo | the subject does not hold `avatar.manage_organization`; check `Roles()` is in `Config.Middleware` |
+| `404` on a person's editor | `Directory.Owner` answered `ErrUnknownOwner`, or the owner is in another tenant |
+| the editor is unstyled, no cropper | `{!! avatar.Assets() !!}` is not in the layout's head, or `ui.js` loads after the script |
+| the photo does not appear, the drawing does | the picture route answered an error: check the `Disk` and that the session is valid on this origin |
+| the photo shows for the owner and not for others | other members are in another tenant: avatars are scoped to the space |
+| "Gravatar não está ligado" | `Config.Chain` has no `avatar.SourceGravatar`, or `Files` is nil |
+| the CDN does not keep the pictures | the default is `private`; set `Config.PublicCache` once the CDN is in front |
+| a change redirects instead of answering the editor | `Config.Render` is nil |

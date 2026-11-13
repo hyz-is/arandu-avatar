@@ -2,316 +2,148 @@ package unit_test
 
 import (
 	"context"
-	"errors"
-	"slices"
 	"strings"
 	"testing"
 
-	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
-	"github.com/arandu-io/hesape/database/model"
-	"github.com/arandu-io/hesape/database/query"
+	"github.com/arandu-io/hesape/auth"
 
 	avatar "github.com/hyz-is/arandu-avatar"
 )
 
-// The four properties this package exists to keep are checked here, and they
-// are checked against the code rather than described in a document:
-//
-//  1. the policy denies every action, and has no branch that allows one;
-//  2. the service authorizes before constructing or running the generated query;
-//  3. the tenant comes from the Grant;
-//  4. nothing reaches the database without passing through the first two.
-//
-// The fourth is checked by the handle these tests pass in. It wraps a nil
-// *sql.DB, so any statement that were issued would panic and fail the test
-// loudly -- which makes "the refusal happened before the Model" a fact the
-// suite proves rather than a comment. The structural twin in audit_test.go
-// keeps that order visible on every service method, including an allowed path.
+var (
+	memberActions = []security.Action{avatar.AvatarView, avatar.AvatarUpdate, avatar.AvatarManageOrganization}
+	teamActions   = []security.Action{avatar.AvatarViewAll, avatar.AvatarManageAll}
+	everyAction   = append(append([]security.Action(nil), memberActions...), teamActions...)
+)
 
-// everyAction is the whole set the policy answers about. A test that listed
-// four of five would pass while the fifth was open.
-var everyAction = []security.Action{
-	avatar.AvatarView,
-	avatar.AvatarList,
-	avatar.AvatarCreate,
-	avatar.AvatarUpdate,
-	avatar.AvatarDelete,
+func subject(tenant, id string, actions ...security.Action) security.Subject {
+	return security.Subject{ID: id, Tenant: tenant, Verified: true, Actions: actions}
 }
 
-// administrator is the most privileged subject an application can produce. It
-// is the one to test the default with: a policy that refuses an administrator
-// refuses everyone.
-func administrator() security.Subject {
-	return security.Subject{ID: "user-1", Tenant: "acme", Roles: []string{"admin"}, Verified: true}
+func owned(tenant, kind, id string) avatar.Avatar {
+	return avatar.Avatar{ID: "row", TenantID: tenant, OwnerKind: kind, OwnerID: id}
 }
 
-func TestThePolicyDeniesEveryActionByDefault(t *testing.T) {
+func probe(kind avatar.Kind, id string) avatar.Avatar {
+	return avatar.Avatar{OwnerKind: string(kind), OwnerID: id}
+}
+
+func TestTheMembersPolicyReadsForEveryoneOfTheSpaceAndWritesForTheOwner(t *testing.T) {
 	t.Parallel()
 
-	for _, action := range everyAction {
-		t.Run(string(action), func(t *testing.T) {
-			t.Parallel()
-
-			_, err := security.Authorize(context.Background(), avatar.AvatarPolicy{},
-				administrator(), action, avatar.Avatar{})
-			if !errors.Is(err, security.ErrForbidden) {
-				t.Fatalf("an unopened policy allowed %s: got %v, want ErrForbidden", action, err)
-			}
-		})
-	}
-}
-
-func TestThePolicyDeniesARecordOfAnotherTenant(t *testing.T) {
-	t.Parallel()
-
-	other := avatar.Avatar{ID: "record-1", TenantID: "globex", Name: "theirs"}
-
-	err := avatar.AvatarPolicy{}.Can(context.Background(),
-		administrator(), avatar.AvatarView, other)
-	if err == nil {
-		t.Fatal("the policy allowed a record belonging to another tenant")
-	}
-	// The message is asserted because the tenant check is the one refusal that
-	// has to survive somebody opening the actions below it.
-	if !strings.Contains(err.Error(), "another tenant") {
-		t.Fatalf("the refusal did not name the tenant: %v", err)
-	}
-}
-
-func TestThePolicyDeniesAGuest(t *testing.T) {
-	t.Parallel()
-
-	for _, action := range everyAction {
-		_, err := security.Authorize(context.Background(), avatar.AvatarPolicy{},
-			security.Guest("acme"), action, avatar.Avatar{})
-		if !errors.Is(err, security.ErrForbidden) {
-			t.Fatalf("a guest was allowed %s: got %v, want ErrForbidden", action, err)
-		}
-	}
-}
-
-func TestAuthorizeRefusesASubjectThatIsNobody(t *testing.T) {
-	t.Parallel()
-
-	// The zero Subject is a session that failed to load, not an anonymous
-	// reader, and it is refused before the policy is consulted. A package that
-	// answered it as a guest would answer a broken session as a visitor.
-	_, err := security.Authorize(context.Background(), avatar.AvatarPolicy{},
-		security.Subject{}, avatar.AvatarView, avatar.Avatar{})
-	if !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("an empty subject was authorized: got %v, want ErrForbidden", err)
-	}
-}
-
-// nilHandle is a handle over no database.
-//
-// Any statement issued through it panics, which is what makes these tests
-// prove that the refusal came first: a service that reached the Model before
-// authorizing would crash here rather than pass.
-func nilHandle() *data.DB { return data.Wrap(nil, data.DialectSQLite) }
-
-func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
-	t.Parallel()
-
-	// A nil handle makes even construction of Avatars panic, at the
-	// GetQueryGrammar the query asks the handle for. This catches moving the
-	// generated query constructor -- not only its terminal -- ahead of
-	// authorization.
-	service := avatar.NewAvatarService(nil)
+	p := avatar.AvatarPolicy{}
 	ctx := context.Background()
-
-	if _, err := service.Find(ctx, administrator(), "record-1"); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Find reached the Model before the policy refusal: %v", err)
-	}
-	if _, err := service.List(ctx, administrator(), data.Query{}); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("List reached the Model before the policy refusal: %v", err)
-	}
-	if _, err := service.Create(ctx, administrator(), avatar.CreateRequest{Name: "one"}); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Create reached the Model before the policy refusal: %v", err)
-	}
-}
-
-// recordingHandle runs nothing and keeps every statement it is handed, so a
-// test reads what the table compiles instead of reading its settings. The table
-// keeps its settings to itself; what it writes is the behaviour they decide.
-type recordingHandle struct {
-	*data.DB
-	statements []recordedStatement
-}
-
-type recordedStatement struct {
-	sql      string
-	bindings []any
-}
-
-// newRecordingHandle borrows the grammar and the processor of an SQLite handle
-// over no database, and answers every statement itself.
-func newRecordingHandle() *recordingHandle { return &recordingHandle{DB: nilHandle()} }
-
-func (h *recordingHandle) record(sql string, bindings []any) {
-	h.statements = append(h.statements, recordedStatement{sql: sql, bindings: slices.Clone(bindings)})
-}
-
-func (h *recordingHandle) Select(_ context.Context, sql string, bindings []any, _ bool) ([]query.Record, error) {
-	h.record(sql, bindings)
-	return nil, nil
-}
-
-func (h *recordingHandle) Insert(_ context.Context, sql string, bindings []any) (bool, error) {
-	h.record(sql, bindings)
-	return true, nil
-}
-
-func (h *recordingHandle) Update(_ context.Context, sql string, bindings []any) (int64, error) {
-	h.record(sql, bindings)
-	return 1, nil
-}
-
-func (h *recordingHandle) Delete(_ context.Context, sql string, bindings []any) (int64, error) {
-	h.record(sql, bindings)
-	return 1, nil
-}
-
-func (h *recordingHandle) Statement(_ context.Context, sql string, bindings []any) (bool, error) {
-	h.record(sql, bindings)
-	return true, nil
-}
-
-// first is the first recorded statement that starts with verb.
-func (h *recordingHandle) first(t *testing.T, verb string) recordedStatement {
-	t.Helper()
-	for _, statement := range h.statements {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(statement.sql)), verb) {
-			return statement
-		}
-	}
-	t.Fatalf("no %s statement was issued; recorded %v", verb, h.statements)
-	return recordedStatement{}
-}
-
-// TestAvatarsReturnsAWiredTenantScopedQuery holds what avatarTable declares,
-// through what it makes the generated query do: the table it reads, a key the
-// application writes and the engine never fills, and a tenant_id taken from the
-// Grant on the way in and on the way out.
-func TestAvatarsReturnsAWiredTenantScopedQuery(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	handle := newRecordingHandle()
-	table := avatar.Avatars(handle).Base().Table()
-	if table.Name() != "avatars" {
-		t.Fatalf("Avatars table = %q, want avatars", table.Name())
-	}
-	if key := table.MorphModel(handle); key.GetKeyName() != "id" || key.GetKeyType() != "string" {
-		t.Fatalf("Avatars key is %q of type %q; want id, as text", key.GetKeyName(), key.GetKeyType())
-	}
-
-	row, err := avatar.Avatars(handle).New()
-	if err != nil {
-		t.Fatalf("building a row: %v", err)
-	}
-	if row.Table() != table {
-		t.Fatal("Avatars returned an entity whose embedded Model is not wired to its table")
-	}
-
-	// The key is application-generated text: the insert carries the one the row
-	// was given, and the engine is never asked for one. An incrementing key
-	// would go through the processor, which runs on no database here, and a key
-	// the model generated would replace the one the service wrote.
-	row.ID = "record-1"
-	if _, err := row.Save(ctx, security.SystemGrant(avatar.AvatarCreate, "acme")); err != nil {
-		t.Fatalf("saving through the recording handle: %v", err)
-	}
-	insert := handle.first(t, "insert")
-	if !slices.Contains(insert.bindings, any("record-1")) || row.ID != "record-1" {
-		t.Fatalf("the insert %q %v does not write the application key, or the row lost it (%q)", insert.sql, insert.bindings, row.ID)
-	}
-	if !strings.Contains(insert.sql, "tenant_id") || !slices.Contains(insert.bindings, any("acme")) {
-		t.Fatalf("the insert %q %v does not stamp tenant_id with the Grant's tenant", insert.sql, insert.bindings)
-	}
-
-	// And the tenant column scopes a read by the Grant's tenant.
-	if _, err := avatar.Avatars(handle).WhereKey("record-1").First(ctx, security.SystemGrant(avatar.AvatarView, "acme")); err != nil {
-		t.Fatalf("reading through the recording handle: %v", err)
-	}
-	read := handle.first(t, "select")
-	if !strings.Contains(read.sql, "tenant_id") || !slices.Contains(read.bindings, any("acme")) {
-		t.Fatalf("the read %q %v is not filtered by tenant_id with the Grant's tenant", read.sql, read.bindings)
-	}
-}
-
-// TestTheMissingRecordIsTheModelsNotFound holds the one link between this
-// package's sentinel and the router's answer. The router answers
-// model.ErrModelNotFound with 404 and has never heard of ErrNotFound, so the
-// sentinel is a 404 only while it wraps the model's.
-func TestTheMissingRecordIsTheModelsNotFound(t *testing.T) {
-	t.Parallel()
-
-	if !errors.Is(avatar.ErrNotFound, model.ErrModelNotFound) {
-		t.Fatal("ErrNotFound does not wrap model.ErrModelNotFound, so the router would answer a missing record with 500")
-	}
-}
-
-func TestASystemGrantWithoutATenantReachesNothing(t *testing.T) {
-	t.Parallel()
-
-	// A system grant with no tenant names no customer. The Model refuses it
-	// while preparing the query, before the nil handle can issue a statement.
-	_, err := avatar.Avatars(nilHandle()).WhereKey("record-1").First(
-		context.Background(), security.SystemGrant(avatar.AvatarView, ""))
-	if !errors.Is(err, model.ErrNoTenant) {
-		t.Fatalf("a system grant with no tenant returned %v, want ErrNoTenant", err)
-	}
-}
-
-func TestTheTenantComesFromTheGrant(t *testing.T) {
-	t.Parallel()
-
-	g := security.SystemGrant(avatar.AvatarView, "acme")
-	if got := data.Tenant(g); got != "acme" {
-		t.Fatalf("data.Tenant(g) = %q, want %q", got, "acme")
-	}
-
-	// And a Grant nobody issued carries no tenant at all, so a statement that
-	// took its tenant from anywhere else would be reading rows this Grant does
-	// not name.
-	if got := data.Tenant(security.Grant{}); got != "" {
-		t.Fatalf("the zero Grant carries the tenant %q, want none", got)
-	}
-}
-
-func TestTheRequestValidatesItsInput(t *testing.T) {
-	t.Parallel()
-
-	if errs := (avatar.CreateRequest{}).Validate(); !errs.Any() {
-		t.Fatal("an empty request validated")
-	}
-	if errs := (avatar.CreateRequest{Name: strings.Repeat("a", 121)}).Validate(); !errs.Any() {
-		t.Fatal("a name past the maximum validated")
-	}
-	if errs := (avatar.CreateRequest{Name: "one"}).Validate(); errs.Any() {
-		t.Fatalf("a valid request was rejected: %v", errs)
-	}
-}
-
-func TestTheConfigurationRefusesWhatCannotWork(t *testing.T) {
-	t.Parallel()
-
-	for name, cfg := range map[string]avatar.Config{
-		"relative prefix":    {Prefix: "avatar"},
-		"page size too big":  {PageSize: avatar.MaxPageSize + 1},
-		"negative page size": {PageSize: -1},
+	ada := subject("acme", "ada")
+	for name, tc := range map[string]struct {
+		who    security.Subject
+		action security.Action
+		record avatar.Avatar
+		want   bool
+	}{
+		"anyone of the space reads a person":       {subject("acme", "bob"), avatar.AvatarView, owned("acme", "user", "ada"), true},
+		"anyone of the space reads a logo":         {subject("acme", "bob"), avatar.AvatarView, owned("acme", "organization", "acme"), true},
+		"the candidate is readable":                {subject("acme", "bob"), avatar.AvatarView, probe(avatar.KindUser, "ada"), true},
+		"another space reads nothing":              {subject("other", "eve"), avatar.AvatarView, owned("acme", "user", "ada"), false},
+		"a guest reads nothing":                    {security.Guest("acme"), avatar.AvatarView, probe(avatar.KindUser, "ada"), false},
+		"a person changes their own":               {ada, avatar.AvatarUpdate, owned("acme", "user", "ada"), true},
+		"a person changes their own, candidate":    {ada, avatar.AvatarUpdate, probe(avatar.KindUser, "ada"), true},
+		"nobody changes somebody else's":           {subject("acme", "bob"), avatar.AvatarUpdate, owned("acme", "user", "ada"), false},
+		"an administrator changes nobody's":        {security.Subject{ID: "boss", Tenant: "acme", Roles: []string{"admin", "owner"}}, avatar.AvatarUpdate, owned("acme", "user", "ada"), false},
+		"the same id in another space is refused":  {ada, avatar.AvatarUpdate, owned("other", "user", "ada"), false},
+		"an empty id is nobody":                    {subject("acme", ""), avatar.AvatarUpdate, probe(avatar.KindUser, ""), false},
+		"a person does not change a logo":          {ada, avatar.AvatarUpdate, owned("acme", "organization", "ada"), false},
+		"the logo needs the action":                {ada, avatar.AvatarManageOrganization, owned("acme", "organization", "acme"), false},
+		"the action opens the logo":                {subject("acme", "boss", avatar.AvatarManageOrganization), avatar.AvatarManageOrganization, owned("acme", "organization", "acme"), true},
+		"the action does not open a person":        {subject("acme", "boss", avatar.AvatarManageOrganization), avatar.AvatarManageOrganization, owned("acme", "user", "ada"), false},
+		"the action is not valid in another space": {subject("acme", "boss", avatar.AvatarManageOrganization), avatar.AvatarManageOrganization, owned("other", "organization", "acme"), false},
+		"the team's actions are not the space's":   {subject("acme", "boss", avatar.AvatarManageAll, avatar.AvatarViewAll), avatar.AvatarManageAll, owned("acme", "user", "ada"), false},
+		"an action nobody declared":                {ada, "avatar.delete_everything", owned("acme", "user", "ada"), false},
 	} {
-		if err := cfg.Validate(); err == nil {
-			t.Errorf("the configuration with %s was accepted", name)
+		err := p.Can(ctx, tc.who, tc.action, tc.record)
+		if (err == nil) != tc.want {
+			t.Errorf("%s: err = %v, want allowed=%v", name, err, tc.want)
 		}
 	}
+}
 
-	// The zero value is the configuration an application that changes nothing
-	// writes, and it has to be one New accepts: there is no tenant to name,
-	// because every tenant comes from the Grant.
-	if err := (avatar.Config{}).Validate(); err != nil {
-		t.Fatalf("the zero configuration was refused: %v", err)
+func TestARecordOfAnotherTenantIsRefusedWithTheSentenceTheContractHolds(t *testing.T) {
+	t.Parallel()
+
+	err := avatar.AvatarPolicy{}.Can(context.Background(), subject("acme", "ada"), avatar.AvatarView, owned("other", "user", "ada"))
+	if err == nil || !strings.Contains(err.Error(), "another tenant") {
+		t.Errorf("err = %v, want it to say another tenant", err)
+	}
+}
+
+func TestTheTeamPolicyAllowsTheTeamAndOnlyTheTeam(t *testing.T) {
+	t.Parallel()
+
+	p := avatar.TeamPolicy{Realm: "platform"}
+	ctx := context.Background()
+	impersonating := subject("platform", "root", avatar.AvatarManageAll)
+	impersonating.Impersonator = &security.Subject{ID: "x"}
+	for name, tc := range map[string]struct {
+		policy avatar.TeamPolicy
+		who    security.Subject
+		action security.Action
+		want   bool
+	}{
+		"the team member with the action":      {p, subject("platform", "root", avatar.AvatarViewAll), avatar.AvatarViewAll, true},
+		"managing needs its own action":        {p, subject("platform", "root", avatar.AvatarViewAll), avatar.AvatarManageAll, false},
+		"managing allowed":                     {p, subject("platform", "root", avatar.AvatarManageAll), avatar.AvatarManageAll, true},
+		"a customer with the team's action":    {p, subject("acme", "ada", avatar.AvatarManageAll, avatar.AvatarViewAll), avatar.AvatarViewAll, false},
+		"a team member with no action":         {p, subject("platform", "root"), avatar.AvatarViewAll, false},
+		"a guest of the realm":                 {p, security.Guest("platform"), avatar.AvatarViewAll, false},
+		"somebody acting as another account":   {p, impersonating, avatar.AvatarManageAll, false},
+		"no realm refuses everybody":           {avatar.TeamPolicy{}, subject("", "root", avatar.AvatarViewAll), avatar.AvatarViewAll, false},
+		"the space's action is not the team's": {p, subject("platform", "root", avatar.AvatarManageOrganization), avatar.AvatarManageOrganization, false},
+	} {
+		err := tc.policy.Can(ctx, tc.who, tc.action, avatar.Avatar{})
+		if (err == nil) != tc.want {
+			t.Errorf("%s: err = %v, want allowed=%v", name, err, tc.want)
+		}
+	}
+}
+
+func TestThePoliciesDenyEveryActionToASubjectWithNothing(t *testing.T) {
+	t.Parallel()
+
+	nobody := subject("acme", "x")
+	for _, a := range teamActions {
+		if err := (avatar.AvatarPolicy{}).Can(context.Background(), nobody, a, avatar.Avatar{}); err == nil {
+			t.Errorf("the members' policy allows the team's %s", a)
+		}
+		if err := (avatar.TeamPolicy{Realm: "acme"}).Can(context.Background(), nobody, a, avatar.Avatar{}); err == nil {
+			t.Errorf("the team's policy allows %s to a subject with no action", a)
+		}
+	}
+}
+
+func TestTheGrantsOfReadingOnlyReadAndWhatWritesWrites(t *testing.T) {
+	t.Parallel()
+
+	var writes auth.Writes = avatar.AvatarPolicy{}
+	var teamWrites auth.Writes = avatar.TeamPolicy{}
+	for _, a := range everyAction {
+		reads := a == avatar.AvatarView || a == avatar.AvatarViewAll
+		if writes.Writes(a) == reads || teamWrites.Writes(a) == reads {
+			t.Errorf("%s: Writes disagrees with the action's name (reads=%v)", a, reads)
+		}
+	}
+}
+
+func TestTheTwoSetsOfActionsAreApart(t *testing.T) {
+	t.Parallel()
+
+	for _, a := range avatar.Actions() {
+		for _, b := range avatar.TeamActions() {
+			if a == b {
+				t.Errorf("%s is in both sets", a)
+			}
+		}
+	}
+	if len(avatar.Actions()) != 1 || len(avatar.TeamActions()) != 2 {
+		t.Errorf("sets = %v and %v", avatar.Actions(), avatar.TeamActions())
 	}
 }

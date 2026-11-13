@@ -16,7 +16,7 @@ names the situation you are in rather than the topic it covers.
 | skill | when it fires |
 | --- | --- |
 | `avatar-policy` | opening an action, adding an authorized Model-backed use case, or anything answering 403 |
-| `avatar-module` | adding a route, a handler, a config field, a response field or a migration |
+| `avatar-module` | adding a route, a handler, a config field, a style, a change to the image pipeline or a migration |
 | `avatar-release` | the gates, the manifest, a dependency, a version, a tag |
 | `avatar-vault-notes` | writing the note, the gap or the journal entry, when this checkout sits inside the Arandu Obsidian vault |
 | `avatar-package` | installing and wiring this package **into an application** |

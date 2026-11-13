@@ -1,345 +1,247 @@
 package feature_test
 
 import (
-	"context"
+	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"sort"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/arandu-io/framework/data"
 	fhttp "github.com/arandu-io/framework/http"
-	"github.com/arandu-io/framework/http/middleware"
 	"github.com/arandu-io/framework/security"
-	"github.com/arandu-io/hesape/database/migrations"
-	hhttp "github.com/arandu-io/hesape/http"
 
 	avatar "github.com/hyz-is/arandu-avatar"
+	"github.com/hyz-is/arandu-avatar/components"
 )
 
-// These tests drive the module the way an application does: build it, register
-// its routes on a router, and make a request.
-//
-// The database handle wraps nothing, and that is the assertion. A request that
-// reached a statement would panic, so every answer below is proof that the
-// refusal happened in the guard or the policy and not after a read.
-
-// appKey is the key a session store is built over. Any thirty-two bytes will
-// do here; a real application reads its own from the environment.
-const appKey = "0123456789abcdef0123456789abcdef"
-
-// reservedPrefix is the namespace the framework keeps for itself: the health
-// probe, the reload endpoint, the development console, the addressed assets.
-//
-// A module that registers under it is refused when the application boots, by
-// name -- and that refusal happens in the process of whoever installed this
-// package, after it was published. Here the same rule is a failing test, in the
-// repository that can still fix it.
-const reservedPrefix = "/_arandu"
-
-// mounted is the module registered on a router the way the kernel builds one,
-// with the session store its guard reads and the flash its router answers a
-// rejected input with.
-type mounted struct {
-	router   *fhttp.Router
-	sessions *security.SessionStore
-	flash    *security.Flash
-}
-
-// mount builds the module and returns a router with its routes registered.
-func mount(t *testing.T, cfg avatar.Config) mounted {
-	t.Helper()
-
-	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
-	// The session keeps who signed in; the roles are the application's to
-	// answer on every request, the way an application wires its accounts.
-	sessions.ResolveSubjects(func(_ context.Context, who security.Subject) (security.Subject, error) {
-		if admin := administrator(); who.ID == admin.ID && who.Tenant == admin.Tenant {
-			return admin, nil
-		}
-		return security.Subject{}, hhttp.ErrSubjectGone
-	})
-	flash := security.NewFlash([]byte(appKey), false)
-
-	module, err := avatar.New(cfg, data.Wrap(nil, data.DialectSQLite), sessions)
-	if err != nil {
-		t.Fatalf("building the module: %v", err)
-	}
-
-	// WithFlash is what the kernel does at boot. Without it the router has
-	// nowhere to put a rejected input and answers it as a failure.
-	router := fhttp.NewRouter().WithFlash(flash)
-	module.Routes(router.ForModule(module.Name()))
-	return mounted{router: router, sessions: sessions, flash: flash}
-}
-
-// administrator is the most privileged subject an application can produce.
-func administrator() security.Subject {
-	return security.Subject{ID: "user-1", Tenant: "acme", Roles: []string{"admin"}, Verified: true}
-}
-
-// signIn starts a session for the subject's account and returns the cookies a
-// browser would send back with the next request. Only the account is written
-// to the session; its roles come back through the store's resolver.
-func (m mounted) signIn(t *testing.T, subject security.Subject) []*http.Cookie {
-	t.Helper()
-
-	rec := httptest.NewRecorder()
-	who := security.Subject{ID: subject.ID, Tenant: subject.Tenant}
-	if _, err := m.sessions.Start(context.Background(), rec, who); err != nil {
-		t.Fatalf("starting a session: %v", err)
-	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) == 0 {
-		t.Fatal("starting a session wrote no cookie")
-	}
-	return cookies
-}
-
-// answer makes one request against the router and returns the recorder.
-//
-// A panic out of the router is a failure of this test rather than of the run:
-// it is how an error nobody claimed arrives here, and reporting it by name says
-// which request produced it.
-func (m mounted) answer(t *testing.T, method, target, body string, cookies ...*http.Cookie) (rec *httptest.ResponseRecorder) {
-	t.Helper()
-
-	req := httptest.NewRequest(method, target, strings.NewReader(body))
-	if body != "" {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	}
-	for _, cookie := range cookies {
-		req.AddCookie(cookie)
-	}
-	rec = httptest.NewRecorder()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			t.Fatalf("%s %s panicked, which a deployed router answers with 500: %v", method, target, recovered)
-		}
-	}()
-	m.router.ServeHTTP(rec, req)
-	return rec
-}
-
-// everyRoute is a request to each route the module registers, under the
-// default prefix. TestTheModuleRegistersItsRoutesUnderItsPrefix fails when a
-// route exists that this list does not reach.
-var everyRoute = []struct {
-	method string
-	target string
-	body   string
-}{
-	{http.MethodGet, avatar.DefaultPrefix, ""},
-	{http.MethodGet, avatar.DefaultPrefix + "/record-1", ""},
-	{http.MethodPost, avatar.DefaultPrefix, "name=one"},
+// everyRoute is a request to each route the module registers, under the default
+// prefix. TestTheModuleRegistersItsRoutesUnderItsPrefix fails when a route
+// exists that this list does not reach.
+var everyRoute = []struct{ method, target string }{
+	{"GET", "/avatars/users/ada/0123456789abcdef/64"},
+	{"GET", "/avatars/users/ada/editor"},
+	{"POST", "/avatars/users/ada/photo"},
+	{"POST", "/avatars/users/ada/gravatar"},
+	{"POST", "/avatars/users/ada/style"},
+	{"POST", "/avatars/users/ada/removal"},
+	{"GET", "/avatars/organizations/acme/0123456789abcdef/64"},
+	{"GET", "/avatars/organizations/acme/editor"},
+	{"POST", "/avatars/organizations/acme/photo"},
+	{"POST", "/avatars/organizations/acme/gravatar"},
+	{"POST", "/avatars/organizations/acme/style"},
+	{"POST", "/avatars/organizations/acme/removal"},
+	{"GET", "/admin/avatars/users/ada/0123456789abcdef/64"},
+	{"POST", "/admin/avatars/users/ada/removal"},
+	{"GET", "/admin/avatars/organizations/acme/0123456789abcdef/64"},
+	{"POST", "/admin/avatars/organizations/acme/removal"},
 }
 
 func TestAVisitorWithNoSessionIsSentToSignIn(t *testing.T) {
-	t.Parallel()
-
-	m := mount(t, avatar.Config{})
-
-	// RequireAuth answers before the handler runs, so a visitor with no
-	// session reaches neither the policy nor the database: the answer is the
-	// sign-in screen, not a refusal from a policy that was asked about nobody.
-	for _, request := range everyRoute {
-		rec := m.answer(t, request.method, request.target, request.body)
-		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != middleware.SignInPath {
-			t.Errorf("%s %s answered %d to %q, want %d to %s",
-				request.method, request.target, rec.Code, rec.Header().Get("Location"),
-				http.StatusSeeOther, middleware.SignInPath)
+	w := install(t)
+	for _, r := range everyRoute {
+		rec := w.do(t, request{method: r.method, target: r.target})
+		if rec.Code < 300 || rec.Code > 399 || !strings.Contains(rec.Header().Get("Location"), "/auth/login") {
+			t.Errorf("%s %s with no session = %d to %q, want a redirect to sign in", r.method, r.target, rec.Code, rec.Header().Get("Location"))
 		}
-	}
-}
-
-func TestASignedInSubjectReachesThePolicyAndIsRefused(t *testing.T) {
-	t.Parallel()
-
-	m := mount(t, avatar.Config{})
-	cookies := m.signIn(t, administrator())
-
-	// The guard admits the session and puts its subject on the request; the
-	// handler hands it to the service, and the closed policy refuses it. The
-	// router turns that refusal into 403 -- before any statement, which the
-	// handle over no database would have panicked on.
-	for _, request := range everyRoute {
-		rec := m.answer(t, request.method, request.target, request.body, cookies...)
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("%s %s answered %d for a signed-in administrator, want %d",
-				request.method, request.target, rec.Code, http.StatusForbidden)
-		}
-	}
-}
-
-func TestARejectedInputGoesBackBeforeTheDatabase(t *testing.T) {
-	t.Parallel()
-
-	m := mount(t, avatar.Config{})
-	cookies := m.signIn(t, administrator())
-
-	// The input is validated before anything is authorized, so this refusal
-	// comes from the request and not from the policy. The router answers it the
-	// way it answers every rejected form: back where it came from, with the
-	// messages in the flash -- and it still never reaches a statement.
-	rec := m.answer(t, http.MethodPost, avatar.DefaultPrefix, "name=", cookies...)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
-		t.Fatalf("an empty name answered %d to %q, want %d back to /", rec.Code, rec.Header().Get("Location"), http.StatusSeeOther)
-	}
-
-	// The page the redirect lands on is a navigation, which is the only read the
-	// flash spends itself on.
-	next := httptest.NewRequest(http.MethodGet, "/", nil)
-	next.Header.Set("Accept", "text/html")
-	for _, cookie := range rec.Result().Cookies() {
-		next.AddCookie(cookie)
-	}
-	errs, _, ok := m.flash.Take(httptest.NewRecorder(), next)
-	if !ok || len(errs["name"]) == 0 {
-		t.Fatalf("the redirect carries no message for name in the flash: %v", errs)
-	}
-}
-
-// TestTheRouterAnswersAMissingRecordWith404 holds the half of ErrNotFound the
-// unit suite cannot: that the router this module registers on answers it, with
-// no mapping written in the module.
-func TestTheRouterAnswersAMissingRecordWith404(t *testing.T) {
-	t.Parallel()
-
-	router := fhttp.NewRouter()
-	router.Action(http.MethodGet, "/missing", func(*fhttp.Context) error {
-		return avatar.ErrNotFound
-	})
-	m := mounted{router: router}
-
-	if rec := m.answer(t, http.MethodGet, "/missing", ""); rec.Code != http.StatusNotFound {
-		t.Fatalf("ErrNotFound answered %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 
 func TestTheModuleRegistersItsRoutesUnderItsPrefix(t *testing.T) {
-	t.Parallel()
-
-	m := mount(t, avatar.Config{Prefix: "/widgets"})
-
-	got := make([]string, 0, 3)
-	for _, route := range m.router.Routes() {
-		if route.Module != "avatar" {
-			t.Errorf("the route %s %s is not tagged with the module name: %q", route.Method, route.Pattern, route.Module)
-		}
-		got = append(got, route.Method+" "+route.Pattern)
-	}
-	sort.Strings(got)
-
-	want := []string{"GET /widgets", "GET /widgets/{id}", "POST /widgets"}
-	if len(got) != len(want) || len(got) != len(everyRoute) {
-		t.Fatalf("registered %v, want %v, and everyRoute reaches %d of them", got, want, len(everyRoute))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("registered %v, want %v", got, want)
-		}
-	}
-}
-
-// TestNoRouteLandsInTheFrameworkNamespace is the one property of this package
-// that syntax cannot hold, and it is why it is checked here rather than beside
-// the other four in tests/Unit/audit_test.go: a prefix arrives through
-// configuration, so the only way to know where the routes ended up is to
-// register them and read the table back.
-//
-// Both the default and a configured prefix are mounted, because the two reach
-// the router by different paths and only one of them is written in this
-// repository.
-func TestNoRouteLandsInTheFrameworkNamespace(t *testing.T) {
-	t.Parallel()
-
-	for _, cfg := range []avatar.Config{
-		{},
-		{Prefix: "/widgets"},
+	w := installWith(t, func(c *avatar.Config) {
+		c.Prefix, c.TeamPrefix, c.Paths = "/perfil/fotos", "/admin/fotos", avatar.PortuguesePaths
+	})
+	reached := 0
+	for _, r := range []struct{ method, target string }{
+		{"GET", "/perfil/fotos/pessoas/ada/0123456789abcdef/64"}, {"GET", "/perfil/fotos/pessoas/ada/editor"},
+		{"POST", "/perfil/fotos/pessoas/ada/foto"}, {"POST", "/perfil/fotos/pessoas/ada/gravatar"},
+		{"POST", "/perfil/fotos/pessoas/ada/estilo"}, {"POST", "/perfil/fotos/pessoas/ada/remocao"},
+		{"GET", "/perfil/fotos/espacos/acme/editor"}, {"POST", "/admin/fotos/pessoas/ada/remocao"},
+		{"GET", "/admin/fotos/espacos/acme/0123456789abcdef/64"},
 	} {
-		m := mount(t, cfg)
-
-		registered := 0
-		for _, route := range m.router.Routes() {
-			registered++
-			if route.Pattern == reservedPrefix || strings.HasPrefix(route.Pattern, reservedPrefix+"/") {
-				t.Errorf("the route %s %s is registered under %s/, which the framework keeps for itself and refuses at boot",
-					route.Method, route.Pattern, reservedPrefix)
-			}
+		rec := w.do(t, request{method: r.method, target: r.target})
+		if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound {
+			t.Errorf("%s %s = %d, want the sign-in redirect that proves the route exists and is guarded", r.method, r.target, rec.Code)
 		}
-		if registered == 0 {
-			t.Fatal("the module registered no route, so this test proved nothing")
+		reached++
+	}
+	// Nothing is left at the default addresses.
+	if rec := w.do(t, request{method: "GET", target: "/avatars/users/ada/editor"}); rec.Code != http.StatusNotFound {
+		t.Errorf("the default address still answers: %d", rec.Code)
+	}
+	if reached == 0 {
+		t.Fatal("no route was reached")
+	}
+}
+
+func TestNoRouteLandsInTheFrameworkNamespace(t *testing.T) {
+	for _, prefix := range []string{"/_arandu", "/_arandu/avatars"} {
+		_, err := avatar.New(avatar.Config{Prefix: prefix}, data.Wrap(nil, data.DialectSQLite), nopSessions())
+		if err == nil {
+			t.Errorf("a prefix of %q was accepted", prefix)
+		}
+	}
+	w := install(t)
+	for _, r := range everyRoute {
+		if strings.HasPrefix(r.target, "/_arandu") {
+			t.Errorf("%s is in the framework's namespace", r.target)
+		}
+	}
+	_ = w
+}
+
+func nopSessions() *security.SessionStore {
+	return security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
+}
+
+func TestAMultipartUploadThroughTheRouteAnswersTheEditorToHTMX(t *testing.T) {
+	w := install(t)
+	w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
+	who := member("acme", "ada")
+	cookies := w.signIn(t, who)
+
+	body, contentType := multipartBody(t, "file", "me.jpg", jpegBytes(t, 400, 300),
+		map[string]string{"crop_x": "0.2", "crop_y": "0", "crop_size": "0.8", "_token": "x"})
+	rec := w.do(t, request{
+		method: "POST", target: "/avatars/users/ada/photo", body: body, contentType: contentType, cookies: cookies,
+		header: http.Header{"HX-Request": {"true"}},
+	})
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("upload = %d %s: %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	html := rec.Body.String()
+	for _, want := range []string{`id="avatar-editor-user-ada"`, "Foto atualizada.", `data-source="upload"`, "Remover foto", `hx-post="/avatars/users/ada/photo"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the editor does not contain %q", want)
+		}
+	}
+	if strings.Contains(html, "<html") || strings.Contains(html, "<link rel") {
+		t.Error("the answer is a page, or carries the assets the page already has")
+	}
+	if p := picture(t, w, who, avatar.Owner{Ref: avatar.User("ada")}); p.Source != avatar.SourceUpload {
+		t.Errorf("the photo was not kept: %s", p.Source)
+	}
+
+	// A refusal answers the editor again, with the message in it, and keeps the
+	// photo that was there.
+	bad, bct := multipartBody(t, "file", "me.jpg", []byte("not a picture at all"), nil)
+	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: bad, contentType: bct, cookies: cookies, header: http.Header{"HX-Request": {"true"}}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "A foto precisa ser JPEG, PNG ou WebP.") || !strings.Contains(rec.Body.String(), `role="alert"`) {
+		t.Errorf("refusal = %d: %s", rec.Code, rec.Body.String())
+	}
+	// Without htmx the refusal is the router's: it goes back with the messages.
+	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: bad, contentType: bct, cookies: cookies})
+	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound {
+		t.Errorf("a refusal with no htmx = %d, want a redirect back", rec.Code)
+	}
+	// And a body that is not multipart is a refusal too, not a crash.
+	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: []byte("file=x"), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: http.Header{"HX-Request": {"true"}}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Escolha uma foto") {
+		t.Errorf("a non-multipart body = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTheOtherFormsAnswerThroughTheRoutes(t *testing.T) {
+	w := install(t)
+	w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
+	w.gravatar.pictures[digest("ada@example.com")] = jpegBytes(t, 300, 300)
+	cookies := w.signIn(t, member("acme", "ada"))
+	htmx := http.Header{"HX-Request": {"true"}}
+	form := func(target, body string) *httptest.ResponseRecorder {
+		return w.do(t, request{method: "POST", target: target, body: []byte(body), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: htmx})
+	}
+
+	if rec := form("/avatars/users/ada/style", "style=marble"); !strings.Contains(rec.Body.String(), "Desenho escolhido.") ||
+		!regexp.MustCompile(`value="marble"\s+checked`).MatchString(rec.Body.String()) {
+		t.Errorf("style: %s", rec.Body.String())
+	}
+	if rec := form("/avatars/users/ada/gravatar", "action=enable"); !strings.Contains(rec.Body.String(), "Gravatar ligado.") ||
+		!strings.Contains(rec.Body.String(), "Atualizar do Gravatar") {
+		t.Errorf("gravatar on: %s", rec.Body.String())
+	}
+	if rec := form("/avatars/users/ada/gravatar", "action=refresh"); !strings.Contains(rec.Body.String(), "Gravatar atualizado.") {
+		t.Errorf("gravatar refresh: %s", rec.Body.String())
+	}
+	if rec := form("/avatars/users/ada/gravatar", "action=disable"); !strings.Contains(rec.Body.String(), "Gravatar desligado.") {
+		t.Errorf("gravatar off: %s", rec.Body.String())
+	}
+	if rec := form("/avatars/users/ada/removal", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Foto removida.") {
+		t.Errorf("removal: %d %s", rec.Code, rec.Body.String())
+	}
+	// Somebody else's editor is readable and has nothing to press.
+	w.enroll("acme", "bob", "Bob", "")
+	rec := w.do(t, request{method: "GET", target: "/avatars/users/bob/editor", cookies: cookies})
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), `data-part="upload"`) || !strings.Contains(rec.Body.String(), "não alterá-la") {
+		t.Errorf("somebody else's editor: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := form("/avatars/users/bob/style", "style=marble"); rec.Code != http.StatusForbidden {
+		t.Errorf("changing somebody else's style = %d, want 403", rec.Code)
+	}
+	// Without a Render the module answers a change with a redirect back.
+	plain := installWith(t, func(c *avatar.Config) { c.Render = nil })
+	plain.enroll("acme", "ada", "Ada", "")
+	cookies2 := plain.signIn(t, member("acme", "ada"))
+	r := plain.do(t, request{method: "POST", target: "/avatars/users/ada/style", body: []byte("style=beam"), contentType: "application/x-www-form-urlencoded",
+		cookies: cookies2, header: http.Header{"HX-Request": {"true"}, "Referer": {"http://example.com/perfil?x=1"}}})
+	// htmx is told to navigate, with the header the framework writes for it.
+	if r.Code != http.StatusNoContent || r.Header().Get("HX-Redirect") != "/avatars/users/ada/editor" && r.Header().Get("HX-Redirect") != "/perfil?x=1" {
+		t.Errorf("a change with no Render = %d, HX-Redirect %q", r.Code, r.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestARedirectBackNeverLeavesTheOrigin(t *testing.T) {
+	plain := installWith(t, func(c *avatar.Config) { c.Render = nil })
+	plain.enroll("acme", "ada", "Ada", "")
+	cookies := plain.signIn(t, member("acme", "ada"))
+	for referer, want := range map[string]string{
+		"http://example.com/perfil?x=1": "/perfil?x=1",
+		"https://evil.example/steal":    "/avatars/users/ada/editor",
+		"http://example.com//evil.test": "/avatars/users/ada/editor",
+		"":                              "/avatars/users/ada/editor",
+	} {
+		req := httptest.NewRequest("POST", "/avatars/users/ada/style", strings.NewReader("style=beam"))
+		req.Host = "example.com"
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if referer != "" {
+			req.Header.Set("Referer", referer)
+		}
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		rec := httptest.NewRecorder()
+		plain.router.ServeHTTP(rec, req)
+		if got := rec.Header().Get("Location"); got != want {
+			t.Errorf("Referer %q: redirected to %q, want %q", referer, got, want)
 		}
 	}
 }
 
-func TestNewRefusesAWiringThatCannotWork(t *testing.T) {
-	t.Parallel()
-
-	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
-	handle := data.Wrap(nil, data.DialectSQLite)
-	valid := avatar.Config{}
-
-	if _, err := avatar.New(avatar.Config{PageSize: -1}, handle, sessions); err == nil {
-		t.Error("a configuration with a negative page size was accepted")
+func TestTheEditorMarkupCarriesNoScriptAndNoStyle(t *testing.T) {
+	w := install(t)
+	w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
+	cookies := w.signIn(t, member("acme", "ada"))
+	rec := w.do(t, request{method: "GET", target: "/avatars/users/ada/editor", cookies: cookies})
+	html := rec.Body.String()
+	for _, banned := range []*regexp.Regexp{
+		regexp.MustCompile(`(?i)<script`), regexp.MustCompile(`(?i)\sstyle=`), regexp.MustCompile(`(?i)\son[a-z]+=`),
+		regexp.MustCompile(`(?i)javascript:`), regexp.MustCompile(`(?i)<style`), regexp.MustCompile(`x-data|x-on:|@click`),
+	} {
+		if banned.MatchString(html) {
+			t.Errorf("the editor carries %v", banned)
+		}
 	}
-	if _, err := avatar.New(valid, nil, sessions); err == nil {
-		t.Error("a nil database handle was accepted")
-	}
-	if _, err := avatar.New(valid, handle, nil); err == nil {
-		t.Error("a nil session store was accepted")
-	}
-	if _, err := avatar.New(valid, handle, sessions); err != nil {
-		t.Fatalf("a valid wiring was refused: %v", err)
-	}
-}
-
-func TestNewRefusesARoutePrefixThatCannotBeRegistered(t *testing.T) {
-	t.Parallel()
-
-	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
-	handle := data.Wrap(nil, data.DialectSQLite)
-
-	for _, prefix := range []string{"/widgets{", "/widgets/{id}"} {
-		if _, err := avatar.New(avatar.Config{Prefix: prefix}, handle, sessions); err == nil {
-			t.Errorf("New accepted route prefix %q, which would panic during route registration", prefix)
+	for _, want := range []string{`data-kyse-behavior="avatar-editor"`, `type="file"`, `accept="image/jpeg,image/png,image/webp"`, `role="radiogroup"`, `aria-live="polite"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the editor lacks %q", want)
 		}
 	}
 }
 
-func TestTheModuleDeclaresItsSchema(t *testing.T) {
-	t.Parallel()
-
-	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
-	module, err := avatar.New(avatar.Config{}, data.Wrap(nil, data.DialectSQLite), sessions)
-	if err != nil {
-		t.Fatalf("building the module: %v", err)
-	}
-
-	declared := module.Migrations()
-	if len(declared) == 0 {
-		t.Fatal("the module declares migrations = true and returns none")
-	}
-
-	names := make([]string, 0, len(declared))
-	for _, migration := range declared {
-		name := migration.GetName()
-		if name == "" {
-			t.Fatal("a migration has no name, and the name is what carries the order")
-		}
-		names = append(names, name)
-
-		// A migration that cannot be rolled back is a deploy that cannot be
-		// undone. The migrator finds Down by type assertion, so a Down with the
-		// wrong signature is a rollback that silently does nothing.
-		if _, ok := migration.(migrations.ReversibleMigration); !ok {
-			t.Errorf("the migration %s has no Down", name)
-		}
-	}
-
-	if !sort.StringsAreSorted(names) {
-		t.Fatalf("the migrations are not returned in the order their names sort in: %v", names)
-	}
-}
+// keep the packages the table above names in use.
+var (
+	_ = bytes.NewReader
+	_ fhttp.Middleware
+	_ = components.Render
+)

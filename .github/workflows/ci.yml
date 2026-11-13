@@ -42,6 +42,25 @@ jobs:
       - name: build
         run: go build ./...
 
+      # The applications that install this ship a distroless image built with
+      # -tags nodynamic, so nothing here may need C.
+      - name: static build
+        run: CGO_ENABLED=0 go build -tags nodynamic ./...
+
+      # The compiled components are committed, and a stale one ships: go get has
+      # no build step, so what is in the repository is what every project
+      # imports. The generated queries are checked the same way.
+      - name: the generated files are the ones in the tree
+        run: |
+          go install github.com/arandu-io/aru@latest
+          "$(go env GOPATH)/bin/aru" model:build --check
+          "$(go env GOPATH)/bin/aru" view:build
+          if [ -n "$(git status --porcelain components)" ]; then
+            echo "the committed components do not match their sources:"
+            git --no-pager diff --stat components
+            exit 1
+          fi
+
       - name: vet
         run: go vet ./...
 

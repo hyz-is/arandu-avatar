@@ -1,170 +1,296 @@
 package avatar
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/arandu-io/hesape/database/model"
+
+	"github.com/hyz-is/arandu-avatar/internal/art"
 )
 
-// Avatar is the entity this package owns.
+// The table name, declared once: the migration and the models read it from
+// here, so a rename is one edit.
+const avatarsTable = "avatars"
+
+// Column widths, declared once for the migration and the validation, so a value
+// the service accepts is a value the column holds.
+const (
+	maxIdentifierLen = 64
+	maxStyleLen      = 24
+	maxVersionLen    = 32
+	maxTypeLen       = 32
+	maxSizesLen      = 64
+	maxHashLen       = 64
+)
+
+// Kind says what an avatar is for.
+type Kind string
+
+// The kinds of owner.
+const (
+	// KindUser is a person: their picture follows them between spaces.
+	KindUser Kind = "user"
+	// KindOrganization is a company's space: its logo.
+	KindOrganization Kind = "organization"
+)
+
+// Kinds are every kind, in the order the routes are registered.
+var Kinds = []Kind{KindUser, KindOrganization}
+
+// Valid reports whether the kind is one of the two.
+func (k Kind) Valid() bool { return k == KindUser || k == KindOrganization }
+
+// Ref names whose avatar it is: a person or an organization, by the identifier
+// the application knows them by.
+type Ref struct {
+	Kind Kind
+	ID   string
+}
+
+// User is the avatar of a person.
+func User(id string) Ref { return Ref{Kind: KindUser, ID: id} }
+
+// Organization is the logo of an organization.
+func Organization(id string) Ref { return Ref{Kind: KindOrganization, ID: id} }
+
+// Valid reports whether the reference can name an owner: a known kind and an
+// identifier of letters, digits and - _ . : up to 64 characters, which cannot
+// carry a path separator, a query or anything that changes what an address or
+// an object key means.
+func (r Ref) Valid() bool {
+	if !r.Kind.Valid() || r.ID == "" || len(r.ID) > maxIdentifierLen {
+		return false
+	}
+	for _, c := range r.ID {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.', c == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// String is "user:ada", for logs and for seeds.
+func (r Ref) String() string { return string(r.Kind) + ":" + r.ID }
+
+// Source is one place a picture can come from.
+type Source string
+
+// The sources of a picture, which Config.Chain puts in order.
+const (
+	// SourceUpload is a photo the person sent.
+	SourceUpload Source = "upload"
+	// SourceGravatar is the person's Gravatar, which they switched on.
+	SourceGravatar Source = "gravatar"
+	// SourceGenerated is a drawing made from the name, with nothing to send or
+	// to fetch. It always works, so it ends every chain.
+	SourceGenerated Source = "generated"
+)
+
+// Style names one way of drawing a generated avatar.
+type Style = art.Style
+
+// The generated styles, each a deterministic SVG drawn from the owner's
+// identifier.
+const (
+	StyleInitials   Style = art.Initials
+	StyleIdenticon  Style = art.Identicon
+	StylePattern    Style = art.Pattern
+	StyleBeam       Style = art.Beam
+	StyleMarble     Style = art.Marble
+	StylePixel      Style = art.Pixel
+	StyleRing       Style = art.Ring
+	StyleSunset     Style = art.Sunset
+	StyleBauhaus    Style = art.Bauhaus
+	StyleShapes     Style = art.Shapes
+	StyleSilhouette Style = art.Silhouette
+)
+
+// Styles are every generated style, in the order a picker lists them.
+func Styles() []Style { return art.Styles() }
+
+// Flag is a yes-or-no a column holds as an integer, read back from whatever an
+// engine answers with: the engines disagree about booleans and one place has to
+// flatten them.
+type Flag bool
+
+// Value writes the flag as the integer the column holds.
+func (f Flag) Value() (driver.Value, error) {
+	if f {
+		return int64(1), nil
+	}
+	return int64(0), nil
+}
+
+// Scan reads the flag back. Anything it cannot read is refused rather than read
+// as false.
+func (f *Flag) Scan(value any) error {
+	switch v := value.(type) {
+	case nil:
+		*f = false
+	case bool:
+		*f = Flag(v)
+	case int64:
+		*f = v != 0
+	case int32:
+		*f = v != 0
+	case int:
+		*f = v != 0
+	case float64:
+		*f = v != 0
+	case []byte:
+		return f.Scan(string(v))
+	case string:
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("avatar: %q is not a yes-or-no", v)
+		}
+		*f = Flag(b)
+	default:
+		return fmt.Errorf("avatar: cannot read %T as a yes-or-no", value)
+	}
+	return nil
+}
+
+// Avatar is how one owner of a space is pictured: the photo they sent, the
+// Gravatar they switched on and the generated style they chose. One row per
+// owner and space.
 //
 // It embeds the model, so a row returned by a query carries the connection and
-// can be saved again. Build a new row with Avatars(db).New(): a struct
-// literal has no connection and its write methods return model.ErrUnwired.
+// can be saved again. Build a new row with Avatars(db).New(): a struct literal
+// has no connection and its write methods return model.ErrUnwired.
 //
-// Avatars, AvatarQuery and AvatarCollection are generated beside this
-// file, in AvatarQuery.go, by aru model:build.
+// Avatars, AvatarQuery and AvatarCollection are generated beside this file, in
+// AvatarQuery.go, by aru model:build.
 type Avatar struct {
 	model.Model
 
 	// ID is the identifier. It is generated by the application rather than by
 	// the database, because a DEFAULT that produces a uuid is spelled
-	// differently in every engine.
+	// differently in every engine. It is also the folder the files are kept in.
 	ID string `db:"id"`
 
-	// TenantID is the customer the row belongs to. It is written from the
-	// Grant and read back so the policy can compare it against the subject's
-	// tenant.
+	// TenantID is the space the row belongs to. It is written from the Grant and
+	// read back so the policy can compare it against the subject's tenant.
 	TenantID string `db:"tenant_id"`
 
-	// Name is what a person calls this record.
-	Name string `db:"name"`
+	// OwnerKind and OwnerID say whose avatar it is.
+	OwnerKind string `db:"owner_kind"`
+	OwnerID   string `db:"owner_id"`
 
-	// CreatedAt is when the row was written, in UTC.
+	// Style is the generated style the owner chose. Empty means
+	// Config.DefaultStyle.
+	Style string `db:"style"`
+
+	// UploadVersion is the first sixteen hex characters of the digest of the
+	// largest photo that was sent, and the version in its address: a new photo
+	// is a new address, so a cache holds the old one without ever being wrong.
+	// Empty means no photo. UploadType is its content type and UploadSizes the
+	// sides, as "64,128,256".
+	UploadVersion string `db:"upload_version"`
+	UploadType    string `db:"upload_type"`
+	UploadSizes   string `db:"upload_sizes"`
+
+	// GravatarEnabled is the person's consent to look their Gravatar up. The
+	// rest is the copy kept of it: GravatarHash is the digest of the e-mail it
+	// was fetched for, so a changed e-mail does not show somebody else's face.
+	GravatarEnabled Flag   `db:"gravatar_enabled"`
+	GravatarHash    string `db:"gravatar_hash"`
+	GravatarVersion string `db:"gravatar_version"`
+	GravatarType    string `db:"gravatar_type"`
+	GravatarSizes   string `db:"gravatar_sizes"`
+
+	// CreatedAt is when the row was written, and UpdatedAt when it last changed,
+	// both in UTC.
 	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }
 
 // avatarTable is the table Avatar is a row of, declared once. Its query,
 // Avatars, is generated beside it and is the one way to reach the rows.
 //
-// ManualKey because the primary key is text the application writes: the
-// database neither increments it nor fills it. The tenant scope is left at its
-// tenant_id default.
+// ManualKey because the primary key is text the application writes. The tenant
+// scope is left at its tenant_id default: this package owns tenant data.
 var avatarTable = model.NewTable(model.TableSpec{
-	Name:      "avatars",
-	New:       func() model.Entity { return new(Avatar) },
-	ManualKey: true,
+	Name:         avatarsTable,
+	New:          func() model.Entity { return new(Avatar) },
+	ManualKey:    true,
+	NoTimestamps: true,
 })
 
 // arandu:begin custom
-// The rules of the entity itself go here: invariants, derived values and
-// transitions that change only the fields of this row, such as a CanX() bool
-// beside the X(...) error it guards. They are pure -- no database, no network,
-// no clock they read for themselves, no Grant -- so the time a transition
-// stamps arrives as a parameter. Orchestration stays in the service: it
-// validates the request, asks the policy, calls these rules and saves with the
-// Grant. A local scope is a method on *AvatarQuery in this block, and a
-// relation is registered on avatarTable from an init function.
-//
-//	// CanRename reports whether the record may take this name.
-//	func (s Avatar) CanRename(name string) bool { return name != "" && name != s.Name }
-//
-//	// Rename gives the record a new name, and refuses one it cannot take.
-//	func (s *Avatar) Rename(name string) error {
-//		if !s.CanRename(name) {
-//			return fmt.Errorf("avatar: %q cannot be the new name of this record", name)
-//		}
-//		s.Name = name
-//		return nil
-//	}
+
+// Ref is whose avatar the row is.
+func (a Avatar) Ref() Ref { return Ref{Kind: Kind(a.OwnerKind), ID: a.OwnerID} }
+
+// HasUpload reports whether the owner sent a photo.
+func (a Avatar) HasUpload() bool { return a.UploadVersion != "" }
+
+// HasGravatar reports whether a copy of the Gravatar is kept and the person
+// still wants it.
+func (a Avatar) HasGravatar() bool { return bool(a.GravatarEnabled) && a.GravatarVersion != "" }
+
+// SetUpload records a photo that is already kept.
+func (a *Avatar) SetUpload(version, contentType string, sizes []int, now time.Time) {
+	a.UploadVersion, a.UploadType, a.UploadSizes = version, contentType, joinSizes(sizes)
+	a.UpdatedAt = now
+}
+
+// ClearUpload forgets the photo.
+func (a *Avatar) ClearUpload(now time.Time) {
+	a.UploadVersion, a.UploadType, a.UploadSizes = "", "", ""
+	a.UpdatedAt = now
+}
+
+// SetGravatar records the consent and the copy that is kept.
+func (a *Avatar) SetGravatar(hash, version, contentType string, sizes []int, now time.Time) {
+	a.GravatarEnabled = true
+	a.GravatarHash, a.GravatarVersion, a.GravatarType, a.GravatarSizes = hash, version, contentType, joinSizes(sizes)
+	a.UpdatedAt = now
+}
+
+// ClearGravatar withdraws the consent and forgets the copy.
+func (a *Avatar) ClearGravatar(now time.Time) {
+	a.GravatarEnabled = false
+	a.GravatarHash, a.GravatarVersion, a.GravatarType, a.GravatarSizes = "", "", "", ""
+	a.UpdatedAt = now
+}
+
+// SetStyle chooses the generated style.
+func (a *Avatar) SetStyle(style Style, now time.Time) {
+	a.Style = string(style)
+	a.UpdatedAt = now
+}
+
+func joinSizes(sizes []int) string {
+	parts := make([]string, len(sizes))
+	for i, s := range sizes {
+		parts[i] = strconv.Itoa(s)
+	}
+	return strings.Join(parts, ",")
+}
+
+// parseSizes reads "64,128,256" back, dropping what is not a size.
+func parseSizes(s string) []int {
+	var out []int
+	for _, part := range strings.Split(s, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // arandu:end custom
 
-// ErrNotFound is returned when no row matches, including when the row exists
-// in another tenant. The two cases are deliberately indistinguishable.
+// ErrNotFound is returned when no row matches, including when the row exists in
+// another tenant. The two cases are deliberately indistinguishable.
 //
 // It wraps model.ErrModelNotFound, so the router answers it with 404 and a
 // caller can still ask for it by name with errors.Is.
-var ErrNotFound = fmt.Errorf("avatar: record not found: %w", model.ErrModelNotFound)
-
-// Resource is the list of fields one Avatar is allowed to answer with.
-//
-// A declared list rather than the entity itself. An encoder handed the entity
-// answers with whatever fields it happens to have, including the ones somebody
-// adds later without ever opening the handler -- and TenantID is exactly such a
-// field: it names another customer's identifier and belongs in no response.
-type Resource struct {
-	id        string
-	name      string
-	createdAt time.Time
-}
-
-// NewResource snapshots one record for the response.
-func NewResource(record Avatar) Resource {
-	return newResource(record.ID, record.Name, record.CreatedAt)
-}
-
-func resourceFromPointer(record *Avatar) Resource {
-	if record == nil {
-		return Resource{}
-	}
-	return newResource(record.ID, record.Name, record.CreatedAt)
-}
-
-func newResource(id, name string, createdAt time.Time) Resource {
-	return Resource{id: id, name: name, createdAt: createdAt}
-}
-
-// ToArray returns the fields that may leave, by name.
-func (r Resource) ToArray() map[string]any {
-	return map[string]any{
-		"id":         r.id,
-		"name":       r.name,
-		"created_at": r.createdAt.UTC().Format(time.RFC3339),
-	}
-}
-
-// With returns what goes beside the fields at the top level of the response.
-// Nothing does here, and a resource that has nothing to add says so by
-// answering nil.
-func (r Resource) With() map[string]any { return nil }
-
-// Collection is a page of records as one response.
-type Collection struct {
-	records []Resource
-	// cursor is what the next page asks for, empty when this page is the last
-	// one. It goes beside the items rather than inside them: it describes the
-	// answer, not the things answered with.
-	cursor string
-}
-
-// NewCollection wraps a page of records for the response. The cursor is what
-// the next request passes back, and is empty when there is no next page.
-func NewCollection(records []Avatar, cursor string) Collection {
-	resources := make([]Resource, 0, len(records))
-	for _, record := range records {
-		resources = append(resources, NewResource(record))
-	}
-	return Collection{records: resources, cursor: cursor}
-}
-
-// collectionFromPointers takes the Model-backed rows returned by a terminal
-// and snapshots only what the response reads. The public constructor keeps its
-// value-based API for callers that build resources without touching storage.
-func collectionFromPointers(records []*Avatar, cursor string) Collection {
-	resources := make([]Resource, 0, len(records))
-	for _, record := range records {
-		if record != nil {
-			resources = append(resources, resourceFromPointer(record))
-		}
-	}
-	return Collection{records: resources, cursor: cursor}
-}
-
-// ToArray returns the page under a single key, so that the shape of the
-// response does not change when a second key is added beside it.
-func (c Collection) ToArray() map[string]any {
-	items := make([]map[string]any, 0, len(c.records))
-	for _, record := range c.records {
-		items = append(items, record.ToArray())
-	}
-	return map[string]any{"items": items}
-}
-
-// With returns the cursor of the next page, and nothing when there is none.
-func (c Collection) With() map[string]any {
-	if c.cursor == "" {
-		return nil
-	}
-	return map[string]any{"next_cursor": c.cursor}
-}
+var ErrNotFound = fmt.Errorf("avatar: not found: %w", model.ErrModelNotFound)

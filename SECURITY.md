@@ -36,7 +36,16 @@ particular:
 - a query whose tenant scope is disabled, or a tenant taken from anywhere but
   `data.Tenant(g)`;
 - a `Grant` that can be produced without a policy returning nil;
-- a field reaching a response that `Resource` does not list.
+- a field reaching a response that `Resource` does not list;
+- a photo served without the policy having answered, or by a public address of the
+  bucket;
+- an upload that is accepted by its name or announced type rather than its bytes,
+  that is decoded before its declared size is held against the ceiling, or that
+  keeps a byte of EXIF or GPS;
+- the e-mail, or the digest of it, reaching a log, an activity entry or anything but
+  the one request a person asked for when they switched Gravatar on;
+- markup of a generated avatar that carries something other than a validated colour,
+  a number or escaped text.
 
 ## What is not
 
