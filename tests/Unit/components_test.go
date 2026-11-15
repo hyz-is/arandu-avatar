@@ -197,15 +197,15 @@ func TestEveryFormOfTheEditorPostsTheTokenAndSwapsItselfInPlace(t *testing.T) {
 		if !strings.Contains(form, `name="_token" value="the-token"`) {
 			t.Errorf("a form posts no token: %.120s", form)
 		}
-		for _, want := range []string{`method="post"`, `hx-post="/avatars/users/ada/`, `hx-target="#avatar-editor-user-ada"`, `hx-swap="outerHTML"`} {
+		for _, want := range []string{`method="post"`, `ypy-post="/avatars/users/ada/`, `ypy-target="#avatar-editor-user-ada"`, `ypy-swap="outerHTML"`} {
 			if !strings.Contains(form, want) {
 				t.Errorf("a form lacks %s: %.160s", want, form)
 			}
 		}
 	}
 	for _, want := range []string{
-		`enctype="multipart/form-data"`, `hx-encoding="multipart/form-data"`, `name="crop_x"`, `name="crop_y"`, `name="crop_size"`,
-		`accept="image/jpeg,image/png,image/webp"`, `type="range"`, `<canvas`, `hx-trigger="change"`, `role="radiogroup"`,
+		`enctype="multipart/form-data"`, `ypy-encoding="multipart/form-data"`, `name="crop_x"`, `name="crop_y"`, `name="crop_size"`,
+		`accept="image/jpeg,image/png,image/webp"`, `type="range"`, `<canvas`, `ypy-trigger="change"`, `role="radiogroup"`,
 		`name="action" value="refresh"`, `name="action" value="disable"`,
 	} {
 		if !strings.Contains(html, want) {

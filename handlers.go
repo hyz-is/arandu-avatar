@@ -26,8 +26,8 @@ import (
 // validation.Errors goes back where the request came from with the messages in
 // the flash, ErrNotFound is 404 because it wraps model.ErrModelNotFound, and a
 // policy refusal is 403. The answer is the status and its standard sentence,
-// never the error's own text. The one exception is an htmx request: it cannot
-// follow a redirect into a fragment, so a refused change answers with the editor
+// never the error's own text. The one exception is a YPY request: a redirect
+// would replace the page instead of filling the editor's fragment, so a refused change answers with the editor
 // again, with the messages in it.
 
 // handler is the handler of one route of the table.
@@ -203,7 +203,7 @@ func (m *Module) noticeFor(err error, key string) string {
 	return m.Labels().T("notice." + key)
 }
 
-// answer finishes a change. An htmx request is answered with the editor drawn
+// answer finishes a change. A YPY request is answered with the editor drawn
 // again, carrying the sentence of what changed or the messages of what was
 // refused; any other request is sent back to the page it came from, or has its
 // refusal returned for the router to answer.
@@ -212,7 +212,7 @@ func (m *Module) answer(ctx *fhttp.Context, who security.Subject, ref Ref, notic
 	if actErr != nil && !errors.As(actErr, &refused) {
 		return actErr
 	}
-	if ctx.IsHTMX() && m.cfg.Render != nil {
+	if ctx.IsYPY() && m.cfg.Render != nil {
 		ed, err := m.avatars.Editor(ctx.Ctx(), who, ref)
 		if err != nil {
 			return err

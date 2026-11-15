@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+The editor is a YPY view. Nothing in the public API changes its name, and one
+thing in the page does.
+
+- **The editor draws `ypy-*` attributes** (`ypy-post`, `ypy-target`,
+  `ypy-swap`, `ypy-encoding`, `ypy-trigger`) where it drew the attributes of the
+  old library. The page that shows it has to load the YPY script, which the
+  Hesape and Framework releases that carry it embed; a page that does not
+  still posts the forms, as before, and is answered with a redirect back.
+- **A change is recognised by `YPY-Request`.** `Config.Render` is still how a
+  change answers a request that came from the script, and a request without the
+  header is still sent back to the page it came from. The module reads the
+  header through `Context.IsYPY`, so it needs the Framework release that has it.
+
 ## v0.1.0
 
 First release: nothing to upgrade from. A new installation reads the README, in

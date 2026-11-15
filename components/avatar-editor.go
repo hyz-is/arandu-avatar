@@ -646,7 +646,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-post=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-post=\"")
 		}
 		if kyse__err == nil {
 			var kyse__v8 string
@@ -663,7 +663,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-target=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-target=\"")
 		}
 		if kyse__err == nil {
 //line components/avatar-editor.kyse.go:251
@@ -674,7 +674,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-swap=\"outerHTML\"\n")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-swap=\"outerHTML\"\n")
 		}
 		if kyse__err == nil {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t>\n")
@@ -768,7 +768,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\tenctype=\"multipart/form-data\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-post=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-post=\"")
 		}
 		if kyse__err == nil {
 			var kyse__v10 string
@@ -785,7 +785,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-target=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-target=\"")
 		}
 		if kyse__err == nil {
 //line components/avatar-editor.kyse.go:273
@@ -796,10 +796,10 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-swap=\"outerHTML\"\n")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-swap=\"outerHTML\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-encoding=\"multipart/form-data\"\n")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-encoding=\"multipart/form-data\"\n")
 		}
 		if kyse__err == nil {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t>\n")
@@ -1233,7 +1233,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 				_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 			}
 			if kyse__err == nil {
-				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-post=\"")
+				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-post=\"")
 			}
 			if kyse__err == nil {
 				var kyse__v13 string
@@ -1250,7 +1250,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 				_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 			}
 			if kyse__err == nil {
-				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-target=\"")
+				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-target=\"")
 			}
 			if kyse__err == nil {
 //line components/avatar-editor.kyse.go:343
@@ -1261,7 +1261,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 				_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 			}
 			if kyse__err == nil {
-				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\thx-swap=\"outerHTML\"\n")
+				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t\typy-swap=\"outerHTML\"\n")
 			}
 			if kyse__err == nil {
 				_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\t\t>\n")
@@ -1359,7 +1359,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-post=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-post=\"")
 		}
 		if kyse__err == nil {
 			var kyse__v15 string
@@ -1376,7 +1376,7 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-target=\"")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-target=\"")
 		}
 		if kyse__err == nil {
 //line components/avatar-editor.kyse.go:365
@@ -1387,10 +1387,10 @@ func AvatarEditor(kyse__props AvatarEditorProps) kyse__template.HTML {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-swap=\"outerHTML\"\n")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-swap=\"outerHTML\"\n")
 		}
 		if kyse__err == nil {
-			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\thx-trigger=\"change\"\n")
+			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t\typy-trigger=\"change\"\n")
 		}
 		if kyse__err == nil {
 			_, kyse__err = kyse__io.WriteString(kyse__w, "\t\t>\n")

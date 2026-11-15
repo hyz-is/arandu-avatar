@@ -102,7 +102,7 @@ var routeVerbs = map[string]bool{
 // handler reads it with ctx.User and nothing loads a session again. The router's
 // action adapter turns an error into its status, so a handler returns the error
 // and writes no refusal of its own: the one place that inspects an error is the
-// answer to an htmx request, which cannot follow a redirect into a fragment, and
+// answer to a YPY request, which a redirect would send away from the fragment, and
 // the upload that turns a body it could not read into a message. And a handler
 // delegates to a Service: none holds the database or constructs a query.
 func TestHandlersLeaveTheSubjectAndTheStatusToTheFramework(t *testing.T) {

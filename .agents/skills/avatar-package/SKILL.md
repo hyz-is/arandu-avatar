@@ -67,7 +67,7 @@ store, so a wiring mistake costs one restart.
 - **`Files`** is the application's `Disk`; in production the private R2 bucket
   (`FILESYSTEM_DISK=r2`). Nil turns uploads and Gravatar off and the drawing still
   works. Never point it at a public bucket address.
-- **`Render`** is `components.Render`: how a change answers an htmx request.
+- **`Render`** is `components.Render`: how a change answers a YPY request.
 - Mount `arandu-permission`'s `Roles()` in `Middleware`, so the subject carries the
   actions it resolves. Declare `avatar.Actions()` and `avatar.TeamActions()` in the
   permission catalogue; give the team's only to the team's groups.

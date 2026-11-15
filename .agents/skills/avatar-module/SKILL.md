@@ -36,8 +36,8 @@ Read the input and who is asking, ask the service, answer. `who, _ := ctx.User()
 no handler loads a session, holds the database or starts a query (`Avatars(...)` in a
 handler fails the structure test). Return the error and the router answers it:
 `validation.Errors` goes back with the messages, `ErrNotFound` is 404, a policy
-refusal 403. The one place that looks at an error is `answer`, because an htmx
-request cannot follow a redirect into a fragment: it answers the editor again with
+refusal 403. The one place that looks at an error is `answer`, because a redirect
+would send a YPY request away from the editor's fragment: it answers the editor again with
 the messages in it.
 
 ## Changing the Model

@@ -61,7 +61,7 @@ activity log exist and before `k.Register`:
 		Directory:  accountDirectory{db: db},  // who a user and an organization are (below)
 		Files:      disk,                      // the application's private R2 disk
 		Activity:   activityModule.Logger(),   // every change goes to the log
-		Render:     avatarui.Render,           // components.Render: how a change answers an htmx request
+		Render:     avatarui.Render,           // components.Render: how a change answers a YPY request
 		Prefix:     "/perfil/avatar",
 		Paths:      avatar.PortuguesePaths,    // /pessoas/{id}/foto, /espacos/{id}/remocao
 		Locale:     "pt-BR",
@@ -355,7 +355,7 @@ database or session store.
 | `JPEGQuality` | default 85 |
 | `PublicCache`, `CacheMaxAge` | `public` instead of `private`; default a year |
 | `GravatarURL`, `HTTPClient` | where Gravatar is fetched from (https, or a loopback address for a test) and with what |
-| `Render` | `components.Render`, so a change answers an htmx request with the editor |
+| `Render` | `components.Render`, so a change answers a YPY request with the editor |
 | `Activity` | the application's `arandu-activitylog` logger |
 | `Translator`, `Locale` | `pt-BR` by default; `en` ships |
 | `Now`, `Logger` | the clock and where what cannot be returned is logged |

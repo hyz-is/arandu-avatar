@@ -247,9 +247,9 @@ func (p AvatarEditorProps) PartNames() []string {
 					data-part="remove"
 					method="post"
 					action="{{ .Editor.URLs.Remove }}"
-					hx-post="{{ .Editor.URLs.Remove }}"
-					hx-target="{{ .Target() }}"
-					hx-swap="outerHTML"
+					ypy-post="{{ .Editor.URLs.Remove }}"
+					ypy-target="{{ .Target() }}"
+					ypy-swap="outerHTML"
 				>
 					<input type="hidden" name="_token" value="{{ .Token() }}">
 					<button type="submit" class="btn" data-variant="outline">{{ .Labels().T("editor.remove") }}</button>
@@ -269,10 +269,10 @@ func (p AvatarEditorProps) PartNames() []string {
 			method="post"
 			action="{{ .Editor.URLs.Upload }}"
 			enctype="multipart/form-data"
-			hx-post="{{ .Editor.URLs.Upload }}"
-			hx-target="{{ .Target() }}"
-			hx-swap="outerHTML"
-			hx-encoding="multipart/form-data"
+			ypy-post="{{ .Editor.URLs.Upload }}"
+			ypy-target="{{ .Target() }}"
+			ypy-swap="outerHTML"
+			ypy-encoding="multipart/form-data"
 		>
 			<input type="hidden" name="_token" value="{{ .Token() }}">
 			<input type="hidden" name="crop_x" value="" data-ref="crop-x">
@@ -339,9 +339,9 @@ func (p AvatarEditorProps) PartNames() []string {
 					class="avatar-actions"
 					method="post"
 					action="{{ .Editor.URLs.Gravatar }}"
-					hx-post="{{ .Editor.URLs.Gravatar }}"
-					hx-target="{{ .Target() }}"
-					hx-swap="outerHTML"
+					ypy-post="{{ .Editor.URLs.Gravatar }}"
+					ypy-target="{{ .Target() }}"
+					ypy-swap="outerHTML"
 				>
 					<input type="hidden" name="_token" value="{{ .Token() }}">
 					@if(.Editor.Gravatar.Enabled)
@@ -361,10 +361,10 @@ func (p AvatarEditorProps) PartNames() []string {
 			class="avatar-block"
 			method="post"
 			action="{{ .Editor.URLs.Style }}"
-			hx-post="{{ .Editor.URLs.Style }}"
-			hx-target="{{ .Target() }}"
-			hx-swap="outerHTML"
-			hx-trigger="change"
+			ypy-post="{{ .Editor.URLs.Style }}"
+			ypy-target="{{ .Target() }}"
+			ypy-swap="outerHTML"
+			ypy-trigger="change"
 		>
 			<input type="hidden" name="_token" value="{{ .Token() }}">
 			<h4 id="{{ .Editor.ID() }}-styles">{{ .Labels().T("editor.style_title") }}</h4>

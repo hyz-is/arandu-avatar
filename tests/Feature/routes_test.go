@@ -96,7 +96,7 @@ func nopSessions() *security.SessionStore {
 	return security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
 }
 
-func TestAMultipartUploadThroughTheRouteAnswersTheEditorToHTMX(t *testing.T) {
+func TestAMultipartUploadThroughTheRouteAnswersTheEditorToYPY(t *testing.T) {
 	w := install(t)
 	w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
 	who := member("acme", "ada")
@@ -106,13 +106,13 @@ func TestAMultipartUploadThroughTheRouteAnswersTheEditorToHTMX(t *testing.T) {
 		map[string]string{"crop_x": "0.2", "crop_y": "0", "crop_size": "0.8", "_token": "x"})
 	rec := w.do(t, request{
 		method: "POST", target: "/avatars/users/ada/photo", body: body, contentType: contentType, cookies: cookies,
-		header: http.Header{"HX-Request": {"true"}},
+		header: http.Header{"YPY-Request": {"true"}},
 	})
 	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("upload = %d %s: %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
 	html := rec.Body.String()
-	for _, want := range []string{`id="avatar-editor-user-ada"`, "Foto atualizada.", `data-source="upload"`, "Remover foto", `hx-post="/avatars/users/ada/photo"`} {
+	for _, want := range []string{`id="avatar-editor-user-ada"`, "Foto atualizada.", `data-source="upload"`, "Remover foto", `ypy-post="/avatars/users/ada/photo"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("the editor does not contain %q", want)
 		}
@@ -127,17 +127,17 @@ func TestAMultipartUploadThroughTheRouteAnswersTheEditorToHTMX(t *testing.T) {
 	// A refusal answers the editor again, with the message in it, and keeps the
 	// photo that was there.
 	bad, bct := multipartBody(t, "file", "me.jpg", []byte("not a picture at all"), nil)
-	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: bad, contentType: bct, cookies: cookies, header: http.Header{"HX-Request": {"true"}}})
+	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: bad, contentType: bct, cookies: cookies, header: http.Header{"YPY-Request": {"true"}}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "A foto precisa ser JPEG, PNG ou WebP.") || !strings.Contains(rec.Body.String(), `role="alert"`) {
 		t.Errorf("refusal = %d: %s", rec.Code, rec.Body.String())
 	}
-	// Without htmx the refusal is the router's: it goes back with the messages.
+	// Without YPY the refusal is the router's: it goes back with the messages.
 	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: bad, contentType: bct, cookies: cookies})
 	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound {
-		t.Errorf("a refusal with no htmx = %d, want a redirect back", rec.Code)
+		t.Errorf("a refusal with no YPY = %d, want a redirect back", rec.Code)
 	}
 	// And a body that is not multipart is a refusal too, not a crash.
-	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: []byte("file=x"), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: http.Header{"HX-Request": {"true"}}})
+	rec = w.do(t, request{method: "POST", target: "/avatars/users/ada/photo", body: []byte("file=x"), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: http.Header{"YPY-Request": {"true"}}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Escolha uma foto") {
 		t.Errorf("a non-multipart body = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -148,9 +148,9 @@ func TestTheOtherFormsAnswerThroughTheRoutes(t *testing.T) {
 	w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
 	w.gravatar.pictures[digest("ada@example.com")] = jpegBytes(t, 300, 300)
 	cookies := w.signIn(t, member("acme", "ada"))
-	htmx := http.Header{"HX-Request": {"true"}}
+	ypyHeader := http.Header{"YPY-Request": {"true"}}
 	form := func(target, body string) *httptest.ResponseRecorder {
-		return w.do(t, request{method: "POST", target: target, body: []byte(body), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: htmx})
+		return w.do(t, request{method: "POST", target: target, body: []byte(body), contentType: "application/x-www-form-urlencoded", cookies: cookies, header: ypyHeader})
 	}
 
 	if rec := form("/avatars/users/ada/style", "style=marble"); !strings.Contains(rec.Body.String(), "Desenho escolhido.") ||
@@ -184,10 +184,10 @@ func TestTheOtherFormsAnswerThroughTheRoutes(t *testing.T) {
 	plain.enroll("acme", "ada", "Ada", "")
 	cookies2 := plain.signIn(t, member("acme", "ada"))
 	r := plain.do(t, request{method: "POST", target: "/avatars/users/ada/style", body: []byte("style=beam"), contentType: "application/x-www-form-urlencoded",
-		cookies: cookies2, header: http.Header{"HX-Request": {"true"}, "Referer": {"http://example.com/perfil?x=1"}}})
-	// htmx is told to navigate, with the header the framework writes for it.
-	if r.Code != http.StatusNoContent || r.Header().Get("HX-Redirect") != "/avatars/users/ada/editor" && r.Header().Get("HX-Redirect") != "/perfil?x=1" {
-		t.Errorf("a change with no Render = %d, HX-Redirect %q", r.Code, r.Header().Get("HX-Redirect"))
+		cookies: cookies2, header: http.Header{"YPY-Request": {"true"}, "Referer": {"http://example.com/perfil?x=1"}}})
+	// YPY is told to navigate, with the header the framework writes for it.
+	if r.Code != http.StatusNoContent || r.Header().Get("YPY-Redirect") != "/avatars/users/ada/editor" && r.Header().Get("YPY-Redirect") != "/perfil?x=1" {
+		t.Errorf("a change with no Render = %d, YPY-Redirect %q", r.Code, r.Header().Get("YPY-Redirect"))
 	}
 }
 
