@@ -35,27 +35,34 @@ import (
 )
 ```
 
-The construction, in `Build`, after the session store, the private disk and the
-activity log exist and before `k.Register`:
+The construction, in `App`, once `NewAppServiceProvider` has returned and the
+private disk and the activity log exist. `New` refuses a wiring that cannot work
+and `Configure` has no way to return that error, so the module is built where
+the error can leave; the database and the session store are the ones the
+framework built from the configuration:
 
 ```go
 	avatarModule, err := avatar.New(avatar.Config{
 		TeamTenant: cfg.Auth.Tenant,
-		Directory:  accountDirectory{db: db},
+		Directory:  accountDirectory{db: drivers.DB},
 		Files:      disk,
 		Activity:   activityModule.Logger(),
 		Render:     avatarui.Render, // components.Render
 		Middleware: []func(http.Handler) http.Handler{permissionModule.Roles()},
-	}, db, sessions)
+	}, drivers.DB, drivers.Sessions)
 	if err != nil {
-		return App{}, err
+		_ = drivers.Close()
+		return nil, err
 	}
 ```
 
-And the registration, inside the `k.Register(...)` call already there:
+And the registration, in the `WithProviders(...)` chain the builder is made of:
 
 ```go
-		avatarModule,
+	return Configure(cfg, drivers, app).
+		WithProviders(avatarModule).
+		WithVersion(version, commit).
+		Create()
 ```
 
 `New` refuses a configuration that cannot work, a nil database and a nil session

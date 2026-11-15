@@ -39,7 +39,7 @@ aru migrate
 
 An Arandu application registers a module explicitly. There is no service
 provider, no container and no discovery, so these are the lines to paste into
-`bootstrap/app.go`, and there are no others.
+`bootstrap/app.go`, and the layout takes one line below.
 
 The imports, with the other module imports. The components live in their own
 package (`components.Render` and the two components below), which is imported
@@ -52,13 +52,16 @@ import (
 )
 ```
 
-The construction, in `Build`, after the session store, the disk and the
-activity log exist and before `k.Register`:
+The construction, in `App`, once `NewAppServiceProvider` has returned and the
+disk and the activity log exist. `New` refuses a wiring that cannot work and
+`Configure` has no way to return that error, so the module is built where the
+error can leave; the database and the session store are the ones the framework
+built from the configuration:
 
 ```go
 	avatarModule, err := avatar.New(avatar.Config{
 		TeamTenant: cfg.Auth.Tenant,           // the platform team's realm; empty turns the team's side off
-		Directory:  accountDirectory{db: db},  // who a user and an organization are (below)
+		Directory:  accountDirectory{db: drivers.DB}, // who a user and an organization are (below)
 		Files:      disk,                      // the application's private R2 disk
 		Activity:   activityModule.Logger(),   // every change goes to the log
 		Render:     avatarui.Render,           // components.Render: how a change answers a YPY request
@@ -66,16 +69,20 @@ activity log exist and before `k.Register`:
 		Paths:      avatar.PortuguesePaths,    // /pessoas/{id}/foto, /espacos/{id}/remocao
 		Locale:     "pt-BR",
 		Middleware: []func(http.Handler) http.Handler{permissionModule.Roles()},
-	}, db, sessions)
+	}, drivers.DB, drivers.Sessions)
 	if err != nil {
-		return App{}, err
+		_ = drivers.Close()
+		return nil, err
 	}
 ```
 
-The registration, inside the `k.Register(...)` call already there:
+And the registration, in the `WithProviders(...)` chain the builder is made of:
 
 ```go
-		avatarModule,
+	return Configure(cfg, drivers, app).
+		WithProviders(avatarModule).
+		WithVersion(version, commit).
+		Create()
 ```
 
 Run the migration. It is not optional and not automatic: the package owns one
