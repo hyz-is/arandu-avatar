@@ -34,7 +34,7 @@ package ship on a distroless image built with `-tags nodynamic`.
 
 ```toml
 name = "hyz-is/avatar"
-framework = ">= 0.67"
+framework = ">= 0.69"
 profiles = ["conventional", "performance"]
 
 [permissions]
