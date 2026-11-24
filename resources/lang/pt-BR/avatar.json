@@ -88,6 +88,7 @@
     "activity": {
         "avatar_uploaded": ":owner enviou uma foto",
         "avatar_removed": "a foto de :owner foi removida",
+        "avatar_erased": "tudo o que estava guardado de :owner foi apagado",
         "avatar_style_changed": "o desenho de :owner mudou",
         "avatar_gravatar_enabled": ":owner ligou o Gravatar",
         "avatar_gravatar_refreshed": ":owner atualizou o Gravatar",

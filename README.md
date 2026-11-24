@@ -262,6 +262,15 @@ and served at
   `Disk` the application passes in. In production that is the private R2 bucket;
   in tests a local adapter. Credentials stay in the application's environment.
 
+## Closing an account
+
+`AvatarService.Erase(ctx, actor, avatar.User(id))` forgets everything kept for a
+person: the photo and the Gravatar copy with their files on the Disk, the choice of
+drawing, and the row. The person erases their own, which an application calls
+before it closes their account; `TeamService.Erase(ctx, actor, ref, space)` is the
+platform's, for a deletion under the LGPD, and needs `avatar.manage_all`. Both
+record `avatar.erased` and nothing of what was erased.
+
 ## Gravatar and the LGPD
 
 Switching Gravatar on sends the SHA-256 of the person's trimmed, lower-cased e-mail
@@ -335,9 +344,9 @@ same as for an owner that does not exist. The platform team's reads cross tenant
 through one internal table that is only reached after `TeamPolicy` answered, and
 every write goes through the tenant's own model under a Grant scoped to it.
 
-Every change and removal -- `avatar.uploaded`, `avatar.removed`,
-`avatar.style_changed`, `avatar.gravatar_enabled`, `avatar.gravatar_refreshed`,
-`avatar.gravatar_disabled` -- is recorded in the log named `avatar`, in the tenant
+Every change, removal and erasure -- `avatar.uploaded`, `avatar.removed`,
+`avatar.erased`, `avatar.style_changed`, `avatar.gravatar_enabled`,
+`avatar.gravatar_refreshed`, `avatar.gravatar_disabled` -- is recorded in the log named `avatar`, in the tenant
 of the Grant, by the subject who acted, a team member included. No entry carries a
 picture, an e-mail or a digest.
 
@@ -361,6 +370,8 @@ database or session store.
 | `MaxPixels` | the most pixels a photo may declare, checked from its header before it is decoded. Default 36 million |
 | `JPEGQuality` | default 85 |
 | `PublicCache`, `CacheMaxAge` | `public` instead of `private`; default a year |
+| `Audience` | who may look at another person's picture and editor through the routes. Nil: anybody signed in to the space. `false` is a 404 |
+| `StaleVersion` | what a replaced address answers: `StaleRedirect` (default) or `StaleNotFound` (404) |
 | `GravatarURL`, `HTTPClient` | where Gravatar is fetched from (https, or a loopback address for a test) and with what |
 | `Render` | `components.Render`, so a change answers a YPY request with the editor |
 | `Activity` | the application's `arandu-activitylog` logger |
@@ -408,7 +419,7 @@ closed policy to an assistant working in your project; `aru skills:sync` copies 
 | manifest | `hyz-is/avatar`, framework `>= 0.67` |
 | table | `avatars` (`aru migrate`) |
 | permission actions | `avatar.view`, `avatar.update`, `avatar.manage_organization`, `avatar.view_all`, `avatar.manage_all` |
-| activity log | `avatar`, six events |
+| activity log | `avatar`, seven events |
 | translation group | `avatar` (`pt-BR`, `en`) |
 | script and stylesheet | `arandu-avatar.js` (behaviours `avatar-image`, `avatar-editor`), `arandu-avatar.css` |
 | third-party dependency | `golang.org/x/image` (WebP decoding and scaling), pure Go |

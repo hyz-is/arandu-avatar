@@ -10,6 +10,32 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
+### Added
+
+- `AvatarService.Erase` and `TeamService.Erase`: forget everything kept for an
+  owner -- the photo and the Gravatar copy with their files, the choice of
+  drawing and the row -- for an account that is closed or deleted. The team's
+  needs `avatar.manage_all`. The act is the new event `avatar.erased`.
+- `Config.Audience`: who may look at another person's picture and editor through
+  the routes. Nil keeps what it was: anybody signed in to the space.
+- `Config.StaleVersion`: `StaleNotFound` answers 404 to a replaced address instead
+  of redirecting to the current one. The default stays `StaleRedirect`.
+
+## [0.2.1] - 2026-11-15
+
+### Changed
+
+- Requires Hesape v0.109.0, Framework v0.71.0 and Kyse v0.53.1.
+
+## [0.2.0] - 2026-11-15
+
+### Changed
+
+- The editor draws `ypy-*` attributes and a change is recognised by the
+  `YPY-Request` header, so the Framework is required at `>= 0.71`.
+
 ## [0.1.0] - 2026-11-13
 
 ### Added

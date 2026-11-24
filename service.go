@@ -43,6 +43,15 @@ func newCore(db *data.DB, cfg Config) *core {
 
 func (c *core) now() time.Time { return c.cfg.Now().UTC() }
 
+// sees says the actor may look at the owner's avatar: their own always, and
+// another's when the application's Audience lets them.
+func (c *core) sees(ctx context.Context, actor security.Subject, ref Ref) bool {
+	if c.cfg.Audience == nil || (ref.Kind == KindUser && ref.ID == actor.ID) {
+		return true
+	}
+	return c.cfg.Audience(ctx, actor, ref)
+}
+
 // AvatarService orchestrates what the members of a space do with avatars: it
 // validates the request, asks the policy for a Grant, applies the rules the
 // entity holds for itself, and persists with that Grant.
@@ -131,6 +140,9 @@ func (s *AvatarService) reach(ctx context.Context, actor security.Subject, a sec
 	g, err := security.Authorize(ctx, s.policy, actor, a, candidate(ref))
 	if err != nil {
 		return security.Grant{}, nil, Owner{}, err
+	}
+	if a == AvatarView && !s.sees(ctx, actor, ref) {
+		return security.Grant{}, nil, Owner{}, ErrNotFound
 	}
 	owner, err := s.owner(ctx, g, actor, ref)
 	if err != nil {
@@ -230,6 +242,9 @@ func (s *AvatarService) Open(ctx context.Context, actor security.Subject, ref Re
 	if err != nil {
 		return Opened{}, err
 	}
+	if !s.sees(ctx, actor, ref) {
+		return Opened{}, ErrNotFound
+	}
 	row, err := s.row(ctx, g, ref)
 	if err != nil {
 		return Opened{}, err
@@ -254,6 +269,9 @@ func (c *core) open(ctx context.Context, g security.Grant, row *Avatar, version 
 	case row.HasGravatar() && row.GravatarVersion == version:
 		which, contentType, sizes = slotGravatar, row.GravatarType, parseSizes(row.GravatarSizes)
 	default:
+		if c.cfg.StaleVersion == StaleNotFound {
+			return Opened{}, ErrNotFound
+		}
 		current := buildPicture(c.cfg, Owner{Ref: row.Ref()}, row, team, space)
 		if !current.HasImage() {
 			return Opened{}, ErrNotFound
@@ -324,6 +342,36 @@ func (s *AvatarService) Remove(ctx context.Context, actor security.Subject, ref 
 		return err
 	}
 	return s.core.removePhoto(ctx, g, actor, row)
+}
+
+// Erase forgets everything kept for the owner: the photo and the Gravatar copy
+// with their files on the Disk, the choice of drawing, and the row itself. It is
+// what an application calls when an account is closed, so nothing of the person
+// outlives it. An owner with nothing kept is left as they are. The act is
+// recorded as ActivityErased, without anything of what was erased.
+func (s *AvatarService) Erase(ctx context.Context, actor security.Subject, ref Ref) error {
+	g, row, _, err := s.reach(ctx, actor, updateAction(ref.Kind), ref)
+	if err != nil {
+		return err
+	}
+	return s.core.erase(ctx, g, actor, row)
+}
+
+// erase is Erase after a policy decided. The row goes first: the files are only
+// reachable through it, so a file that could not be removed afterwards is an
+// orphan nobody can ask for, and is logged.
+func (c *core) erase(ctx context.Context, g security.Grant, actor security.Subject, row *Avatar) error {
+	if row == nil {
+		return nil
+	}
+	files := append(keysOf(row, slotUpload), keysOf(row, slotGravatar)...)
+	if _, err := Avatars(c.db).Where("id", "=", row.ID).Delete(ctx, g); err != nil {
+		return err
+	}
+	if c.cfg.Files != nil {
+		c.drop(ctx, g, files)
+	}
+	return c.record(ctx, g, actor, ActivityErased, row, nil)
 }
 
 // SetStyle chooses the generated style an owner is drawn with when no photo

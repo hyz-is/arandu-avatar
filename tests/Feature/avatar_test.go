@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -658,5 +659,189 @@ func TestACDNInFrontMayKeepThePicturesWhenTheApplicationSaysSo(t *testing.T) {
 	rec := w.do(t, request{method: "GET", target: p.URL(64), cookies: w.signIn(t, who)})
 	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Errorf("Cache-Control = %q", got)
+	}
+}
+
+// filesOf are the files the Disk holds for a tenant.
+func filesOf(t *testing.T, w world, tenant string) []string {
+	t.Helper()
+	g := security.SystemGrant(avatar.AvatarView, tenant) //arandu:system-grant test reads the Disk of the tenant it wrote to
+	files, err := w.disk.AllFiles(ctx, g, "avatar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// rowsOf counts the rows of the avatars table for an owner, in any tenant.
+func rowsOf(t *testing.T, w world, id string) int {
+	t.Helper()
+	var n int
+	if err := w.sql.QueryRow(`SELECT COUNT(*) FROM avatars WHERE owner_id = ?`, id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestErasingAnOwnerForgetsThePhotoTheGravatarCopyTheChoiceAndTheRow(t *testing.T) {
+	w := install(t)
+	ada := w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
+	w.enroll("acme", "grace", "Grace Hopper", "")
+	who := member("acme", "ada")
+	w.gravatar.pictures[digest("ada@example.com")] = jpegBytes(t, 400, 400)
+	if _, err := w.avatars.SetGravatar(ctx, who, avatar.User("ada"), avatar.GravatarEnable); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upload(t, w, who, avatar.User("ada"), jpegBytes(t, 200, 200)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.avatars.SetStyle(ctx, who, avatar.User("ada"), avatar.StylePixel); err != nil {
+		t.Fatal(err)
+	}
+	grace := member("acme", "grace")
+	if _, err := upload(t, w, grace, avatar.User("grace"), jpegBytes(t, 200, 200)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(filesOf(t, w, "acme")); got != 9 {
+		t.Fatalf("before: the Disk holds %d files, want 3 of the photo, 3 of the Gravatar copy and 3 of grace's", got)
+	}
+
+	// Nobody erases somebody else's.
+	requireErr(t, w.avatars.Erase(ctx, grace, avatar.User("ada")), security.ErrForbidden, "another person erasing")
+	if rowsOf(t, w, "ada") != 1 {
+		t.Fatal("another person's attempt erased the row")
+	}
+
+	if err := w.avatars.Erase(ctx, who, avatar.User("ada")); err != nil {
+		t.Fatal(err)
+	}
+	if rowsOf(t, w, "ada") != 0 {
+		t.Error("the row is still there")
+	}
+	if got := len(filesOf(t, w, "acme")); got != 3 {
+		t.Errorf("after: the Disk holds %d files, want only grace's 3: %v", got, filesOf(t, w, "acme"))
+	}
+	if p := picture(t, w, who, ada); p.Source != avatar.SourceGenerated || p.Style != avatar.DefaultStyle || p.HasImage() {
+		t.Errorf("after: %+v, want the default drawing", p)
+	}
+	if rowsOf(t, w, "grace") != 1 {
+		t.Error("erasing one person touched another's row")
+	}
+	// Nothing to erase is not an error, and says nothing in the log twice.
+	if err := w.avatars.Erase(ctx, who, avatar.User("ada")); err != nil {
+		t.Errorf("erasing an owner with nothing kept: %v", err)
+	}
+	var erased int
+	for _, e := range entries(t, w, "acme") {
+		if e.Event == avatar.ActivityErased {
+			erased++
+			if e.Causer != "ada" || strings.Contains(e.Properties, "example.com") || strings.Contains(e.Properties, digest("ada@example.com")) {
+				t.Errorf("the erasure entry = %+v", e)
+			}
+		}
+	}
+	if erased != 1 {
+		t.Errorf("%d erasure entries, want 1", erased)
+	}
+}
+
+func TestThePlatformTeamErasesAnAccountsPictureWithItsOwnAction(t *testing.T) {
+	w := install(t)
+	ada := w.enroll("acme", "ada", "Ada Lovelace", "ada@example.com")
+	who := member("acme", "ada")
+	w.gravatar.pictures[digest("ada@example.com")] = jpegBytes(t, 400, 400)
+	if _, err := w.avatars.SetGravatar(ctx, who, avatar.User("ada"), avatar.GravatarEnable); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upload(t, w, who, avatar.User("ada"), jpegBytes(t, 200, 200)); err != nil {
+		t.Fatal(err)
+	}
+	// A customer, and a team member with no action, are refused.
+	requireErr(t, w.team.Erase(ctx, who, ada.Ref, "acme"), security.ErrForbidden, "a customer erasing through the team")
+	bare := remember(security.Subject{ID: "intern", Tenant: realm, Verified: true})
+	requireErr(t, w.team.Erase(ctx, bare, ada.Ref, "acme"), security.ErrForbidden, "a team member with no action")
+	if rowsOf(t, w, "ada") != 1 {
+		t.Fatal("a refused erasure removed the row")
+	}
+
+	root := agent("root")
+	if err := w.team.Erase(ctx, root, ada.Ref, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if rowsOf(t, w, "ada") != 0 || len(filesOf(t, w, "acme")) != 0 {
+		t.Errorf("the team's erasure left %d rows and %d files", rowsOf(t, w, "ada"), len(filesOf(t, w, "acme")))
+	}
+	var by string
+	for _, e := range entries(t, w, "acme") {
+		if e.Event == avatar.ActivityErased {
+			by = e.Causer
+		}
+	}
+	if by != "root" {
+		t.Errorf("the erasure is in the log by %q, want root", by)
+	}
+	requireErr(t, w.team.Erase(ctx, root, avatar.User("nobody"), ""), avatar.ErrNotFound, "an owner with no row and no space")
+}
+
+func TestTheAudienceLimitsWhoSeesAnotherPersonsPictureAndEditor(t *testing.T) {
+	friends := map[string]bool{"grace": true}
+	w := installWith(t, func(c *avatar.Config) {
+		c.Audience = func(_ context.Context, actor security.Subject, ref avatar.Ref) bool {
+			return ref.Kind == avatar.KindUser && actor.ID == "grace" && friends[actor.ID]
+		}
+	})
+	ada := w.enroll("acme", "ada", "Ada Lovelace", "")
+	w.enroll("acme", "grace", "Grace Hopper", "")
+	w.enroll("acme", "alan", "Alan Turing", "")
+	owner := member("acme", "ada")
+	if _, err := upload(t, w, owner, avatar.User("ada"), jpegBytes(t, 200, 200)); err != nil {
+		t.Fatal(err)
+	}
+	p := picture(t, w, owner, ada)
+	editor := "/avatars/users/ada/editor"
+	get := func(who security.Subject, target string) *httptest.ResponseRecorder {
+		return w.do(t, request{method: "GET", target: target, cookies: w.signIn(t, who)})
+	}
+	if rec := get(owner, p.URL(64)); rec.Code != http.StatusOK {
+		t.Errorf("the owner reading their own = %d", rec.Code)
+	}
+	if rec := get(member("acme", "grace"), p.URL(64)); rec.Code != http.StatusOK {
+		t.Errorf("somebody in the audience = %d", rec.Code)
+	}
+	if rec := get(member("acme", "alan"), p.URL(64)); rec.Code != http.StatusNotFound {
+		t.Errorf("somebody outside it reading the picture = %d, want 404", rec.Code)
+	}
+	if rec := get(member("acme", "alan"), editor); rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "Ada Lovelace") {
+		t.Errorf("somebody outside it reading the editor = %d, and it names the owner: %v", rec.Code, strings.Contains(rec.Body.String(), "Ada"))
+	}
+	if rec := get(owner, editor); rec.Code != http.StatusOK {
+		t.Errorf("the owner's own editor = %d", rec.Code)
+	}
+}
+
+func TestAReplacedAddressIsNotFoundWhenTheApplicationSaysSo(t *testing.T) {
+	w := installWith(t, func(c *avatar.Config) { c.StaleVersion = avatar.StaleNotFound })
+	ada := w.enroll("acme", "ada", "Ada", "")
+	who := member("acme", "ada")
+	if _, err := upload(t, w, who, avatar.User("ada"), jpegBytes(t, 200, 200)); err != nil {
+		t.Fatal(err)
+	}
+	old := picture(t, w, who, ada)
+	if _, err := upload(t, w, who, avatar.User("ada"), jpegBytes(t, 240, 180)); err != nil {
+		t.Fatal(err)
+	}
+	fresh := picture(t, w, who, ada)
+	cookies := w.signIn(t, who)
+	if rec := w.do(t, request{method: "GET", target: old.URL(128), cookies: cookies}); rec.Code != http.StatusNotFound || rec.Header().Get("Location") != "" {
+		t.Errorf("the replaced address = %d, Location %q, want a 404", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := w.do(t, request{method: "GET", target: fresh.URL(128), cookies: cookies}); rec.Code != http.StatusOK {
+		t.Errorf("the current address = %d", rec.Code)
+	}
+}
+
+func TestAnUnknownStaleVersionPolicyIsRefusedAtStartup(t *testing.T) {
+	if err := (avatar.Config{StaleVersion: "forever"}).Validate(); err == nil {
+		t.Error("an unknown StaleVersion was accepted")
 	}
 }

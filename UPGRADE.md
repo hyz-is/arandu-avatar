@@ -1,6 +1,26 @@
 # Upgrade Guide
 
-## Unreleased
+## v0.3.0
+
+Nothing breaks. Three things are new, and none changes what an installation does
+until it is asked to.
+
+- **`Erase`** on `AvatarService` and `TeamService` forgets everything kept for an
+  owner. Call it when an account is closed or deleted; the person's own needs no
+  group, the team's needs `avatar.manage_all` and `Config.TeamTenant`.
+- **`Config.Audience`** limits who sees another person's picture and editor. Nil is
+  today's behaviour.
+- **`Config.StaleVersion`** set to `avatar.StaleNotFound` answers 404 to a replaced
+  address. The default still redirects.
+
+The new event `avatar.erased` is in the log named `avatar`.
+
+## v0.2.1
+
+Nothing to do: it only raises the floor of the releases it requires (Hesape
+v0.109.0, Framework v0.71.0, Kyse v0.53.1).
+
+## v0.2.0
 
 The editor is a YPY view. Nothing in the public API changes its name, and one
 thing in the page does.

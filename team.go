@@ -121,6 +121,16 @@ func (s *TeamService) Remove(ctx context.Context, actor security.Subject, ref Re
 	return s.core.removePhoto(ctx, g, actor, row)
 }
 
+// Erase forgets everything kept for the owner, for the team: what the platform
+// does when it deletes an account under the LGPD. See AvatarService.Erase.
+func (s *TeamService) Erase(ctx context.Context, actor security.Subject, ref Ref, space string) error {
+	g, row, _, err := s.reach(ctx, actor, AvatarManageAll, ref, space)
+	if err != nil {
+		return err
+	}
+	return s.core.erase(ctx, g, actor, row)
+}
+
 // SetStyle chooses the generated style of an owner, for the team.
 func (s *TeamService) SetStyle(ctx context.Context, actor security.Subject, ref Ref, space string, style Style) (*Avatar, error) {
 	g, row, _, err := s.reach(ctx, actor, AvatarManageAll, ref, space)

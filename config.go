@@ -1,6 +1,7 @@
 package avatar
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -174,6 +175,22 @@ type Config struct {
 	// means DefaultCacheMaxAge.
 	CacheMaxAge time.Duration
 
+	// Audience decides who may look at somebody else's avatar through this
+	// package's routes: the picture and the editor, which names its owner. It is
+	// asked after the policy allowed the read, and only for an owner who is not
+	// the person asking; the person's own is always theirs to see. Answering
+	// false is a 404, the same as for an owner that does not exist. Nil leaves
+	// the read to the policy alone: anybody signed in to the space sees every
+	// avatar of it. It does not limit Resolve, which draws the owners a page
+	// names: the page is what decided who is shown.
+	Audience Audience
+
+	// StaleVersion is what an address with a version that is not the owner's
+	// current one answers. The default, StaleRedirect, sends it to the current
+	// picture, which a page rendered before a change still links to.
+	// StaleNotFound answers 404, so an old address says nothing about the new one.
+	StaleVersion StaleVersion
+
 	// GravatarURL is where Gravatar is fetched from. It has to be https, except
 	// for a loopback address, which a test serves. Empty means
 	// DefaultGravatarURL.
@@ -215,6 +232,22 @@ type Config struct {
 	// slog.Default().
 	Logger *slog.Logger
 }
+
+// Audience says whether the actor may look at the avatar of an owner who is not
+// them. See Config.Audience.
+type Audience func(ctx context.Context, actor security.Subject, ref Ref) bool
+
+// StaleVersion is what the route of a picture answers for a version that has
+// been replaced.
+type StaleVersion string
+
+const (
+	// StaleRedirect answers a short-lived redirect to the current picture. It is
+	// the default.
+	StaleRedirect StaleVersion = "redirect"
+	// StaleNotFound answers 404.
+	StaleNotFound StaleVersion = "not_found"
+)
 
 // Paths are the segments the routes of this package are built from. Each one
 // starts with "/" and holds no wildcard.
@@ -329,6 +362,11 @@ func (c Config) Validate() error {
 	}
 	if err := validateChain(c.Chain); err != nil {
 		return err
+	}
+	switch c.StaleVersion {
+	case "", StaleRedirect, StaleNotFound:
+	default:
+		return fmt.Errorf("avatar: Config.StaleVersion is %q, which is neither %q nor %q", c.StaleVersion, StaleRedirect, StaleNotFound)
 	}
 	if c.DefaultStyle != "" && !art.Valid(c.DefaultStyle) {
 		return fmt.Errorf("avatar: Config.DefaultStyle is %q, which is not one of %v", c.DefaultStyle, Styles())

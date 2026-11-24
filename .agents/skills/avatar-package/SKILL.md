@@ -124,6 +124,17 @@ editor, err := avatarModule.Editor(ctx.Ctx(), who, avatar.User(who.ID))
 `avatar.Organization(id)` it is the logo's editor, and it shows nothing to press to
 a subject that cannot change it.
 
+## Closing an account
+
+Call `avatarModule.Avatars().Erase(ctx, who, avatar.User(id))` before an account is
+closed, and `avatarModule.Team().Erase(ctx, operator, avatar.User(id), space)` when
+the platform deletes one: it removes the photo, the Gravatar copy, their files and the
+row. The team's needs `Config.TeamTenant` and `avatar.manage_all`.
+
+`Config.Audience` limits who sees another person's picture and editor (a 404 for the
+rest), and `Config.StaleVersion: avatar.StaleNotFound` answers 404 to a replaced
+address instead of redirecting.
+
 ## The policy is not open by guesswork
 
 - A person changes **their own** avatar with no group. Anybody signed in to the space

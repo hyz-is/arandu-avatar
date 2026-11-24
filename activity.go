@@ -23,6 +23,7 @@ const ActivityRefType = "avatar"
 const (
 	ActivityUploaded         = "avatar.uploaded"
 	ActivityRemoved          = "avatar.removed"
+	ActivityErased           = "avatar.erased"
 	ActivityStyleChanged     = "avatar.style_changed"
 	ActivityGravatarEnabled  = "avatar.gravatar_enabled"
 	ActivityGravatarRefresh  = "avatar.gravatar_refreshed"
