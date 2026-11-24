@@ -1,5 +1,12 @@
 # Upgrade Guide
 
+## v0.3.1
+
+The script and the stylesheet are registered as `avatar.js` and `avatar.css`.
+`avatar.Assets()`, `Script()` and `Stylesheet()` write the new addresses, so nothing
+changes for an application that uses them. One that named `arandu-avatar.js` or
+`arandu-avatar.css` itself, in a layout or a CSP, names `avatar.js` and `avatar.css`.
+
 ## v0.3.0
 
 Nothing breaks. Three things are new, and none changes what an installation does

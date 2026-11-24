@@ -129,7 +129,7 @@ in review. None of them is missing by accident.
 | copying the EXIF segment through, or keeping the original | nothing but pixels is encoded, which is what removes the metadata |
 | an `<img src="blob:...">` for the preview | `createImageBitmap` onto a canvas: the policy has no `blob:` and needs none |
 | an inline `style`, `onclick`, `x-data`, a `<style>` block | a class, a data attribute and the two files served from `self` |
-| a second stylesheet cascade | `arandu-avatar.css` is namespaced under `.avatar[data-avatar]` and `.avatar-*`, written against Basecoat's tokens |
+| a second stylesheet cascade | `avatar.css` is namespaced under `.avatar[data-avatar]` and `.avatar-*`, written against Basecoat's tokens |
 | a local table of roles or admins | `arandu-permission` fills the subject's actions; the policy reads them |
 | a tenant from the path, the query or a header | `data.Tenant(g)`, from the Grant |
 | a permit-all branch in a policy | nothing. A policy denies, and an action is opened by writing the rule that opens it |

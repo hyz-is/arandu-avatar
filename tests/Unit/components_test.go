@@ -240,7 +240,7 @@ func TestTheEditorHasNoScriptNoStyleAndNoHandler(t *testing.T) {
 	}
 	// The assets are the one place a script tag is written, and it is a file.
 	html := string(components.AvatarEditor(components.AvatarEditorProps{Page: page{"t"}, Editor: editorState(t, avatar.Config{}, avatar.KindUser, true)}))
-	if got := regexp.MustCompile(`<script src="/_arandu/assets/[0-9a-f]{12}/arandu-avatar\.js" defer></script>`).FindAllString(html, -1); len(got) != 1 {
+	if got := regexp.MustCompile(`<script src="/_arandu/assets/[0-9a-f]{12}/avatar\.js" defer></script>`).FindAllString(html, -1); len(got) != 1 {
 		t.Errorf("the script tag is written %d times: %s", len(got), html[:200])
 	}
 	if !strings.Contains(html, `<link rel="stylesheet" href="/_arandu/assets/`) {

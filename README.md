@@ -421,7 +421,7 @@ closed policy to an assistant working in your project; `aru skills:sync` copies 
 | permission actions | `avatar.view`, `avatar.update`, `avatar.manage_organization`, `avatar.view_all`, `avatar.manage_all` |
 | activity log | `avatar`, seven events |
 | translation group | `avatar` (`pt-BR`, `en`) |
-| script and stylesheet | `arandu-avatar.js` (behaviours `avatar-image`, `avatar-editor`), `arandu-avatar.css` |
+| script and stylesheet | `avatar.js` (behaviours `avatar-image`, `avatar-editor`), `avatar.css` |
 | third-party dependency | `golang.org/x/image` (WebP decoding and scaling), pure Go |
 
 ## Contributing

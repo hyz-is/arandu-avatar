@@ -12,8 +12,8 @@ import (
 // address, so a new release is a new address and the old one can be cached
 // forever.
 const (
-	ScriptAsset     = "arandu-avatar.js"
-	StylesheetAsset = "arandu-avatar.css"
+	ScriptAsset     = "avatar.js"
+	StylesheetAsset = "avatar.css"
 )
 
 // script is the client half of the components: the cropper of the editor and
@@ -21,7 +21,7 @@ const (
 // so it runs on the elements the components draw and nowhere else. Nothing in
 // it reads an attribute and evaluates it, and nothing is inline.
 //
-//go:embed assets/arandu-avatar.js
+//go:embed assets/avatar.js
 var script []byte
 
 // stylesheet is the avatar's own style: the sizes, the layer a drawing sits in
@@ -29,7 +29,7 @@ var script []byte
 // stylesheet of the application defines, so it follows the light and the dark
 // theme with nothing to configure.
 //
-//go:embed assets/arandu-avatar.css
+//go:embed assets/avatar.css
 var stylesheet []byte
 
 // The assets are registered when the package is linked: a view that draws a

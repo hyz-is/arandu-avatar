@@ -10,6 +10,17 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-24
+
+### Changed
+
+- The script and the stylesheet are served as `avatar.js` and `avatar.css`
+  (`ScriptAsset`, `StylesheetAsset`), where they were `arandu-avatar.js` and
+  `arandu-avatar.css`: the address of a file a page loads is on the application's
+  own domain, and an application that does not show the Arandu name in its pages
+  could not use the package. `avatar.Assets()` writes the new addresses; only an
+  application that wrote the old names by hand has to change them.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
