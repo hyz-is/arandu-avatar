@@ -460,7 +460,7 @@ func (d *drawing) beam() string {
 			f(float64(29-gap/2)-eye), f(34-eye), f(w), f(w), ink, f(float64(51+gap/2)-eye), f(34-eye), f(w), f(w), ink))
 	}
 	if d.intn(2) == 0 {
-		b.WriteString(fmt.Sprintf(`<path d="M30 49Q40 %dQ50 49" fill="none" stroke="%s" stroke-width="3" stroke-linecap="round"/>`, d.span(55, 61), ink))
+		b.WriteString(fmt.Sprintf(`<path d="M30 49Q40 %d 50 49" fill="none" stroke="%s" stroke-width="3" stroke-linecap="round"/>`, d.span(55, 61), ink))
 	} else {
 		b.WriteString(fmt.Sprintf(`<path d="M30 50H50A10 %d 0 0 1 30 50Z" fill="%s"/>`, d.span(5, 10), ink))
 	}

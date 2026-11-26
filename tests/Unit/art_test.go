@@ -163,3 +163,100 @@ func TestAnOrganizationsInitialsAreItsFirstTwoWords(t *testing.T) {
 		t.Errorf("person %s, company %s", person, company)
 	}
 }
+
+// pathArguments is how many numbers each path command takes. A command followed
+// by a run of numbers repeats, so the run has to be a whole multiple of it.
+var pathArguments = map[byte]int{
+	'M': 2, 'L': 2, 'H': 1, 'V': 1, 'C': 6, 'S': 4, 'Q': 4, 'T': 2, 'A': 7, 'Z': 0,
+}
+
+// checkPathData reports what is wrong with the `d` of a path, or nothing. A
+// browser that meets a bad one draws nothing of the path and writes an error in
+// the console: "<path> attribute d: Expected number".
+func checkPathData(d string) string {
+	token := regexp.MustCompile(`[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?`)
+	rest := strings.TrimSpace(token.ReplaceAllString(d, ""))
+	rest = strings.NewReplacer(",", "", " ", "", "\n", "", "\t", "").Replace(rest)
+	if rest != "" {
+		return "unexpected " + rest
+	}
+	tokens := token.FindAllString(d, -1)
+	if len(tokens) == 0 || !strings.ContainsAny(tokens[0], "Mm") {
+		return "does not start with a moveto"
+	}
+	for at := 0; at < len(tokens); {
+		command := strings.ToUpper(tokens[at])[0]
+		want, known := pathArguments[command]
+		if !known {
+			return "a number where a command was expected: " + tokens[at]
+		}
+		at++
+		count := 0
+		for at < len(tokens) && !strings.ContainsAny(tokens[at][:1], "MmLlHhVvCcSsQqTtAaZz") {
+			count++
+			at++
+		}
+		switch {
+		case want == 0 && count != 0:
+			return "Z takes no numbers"
+		case want != 0 && (count == 0 || count%want != 0):
+			return string(command) + " has " + strings.Repeat("#", count) + " numbers, which is not a multiple of " + string(rune('0'+want))
+		}
+	}
+	return ""
+}
+
+func TestThePathDataCheckerCatchesWhatABrowserRefuses(t *testing.T) {
+	t.Parallel()
+
+	for d, want := range map[string]bool{
+		"M30 49Q40 56 50 49":          true,
+		"M30 49Q40 56Q50 49":          false, // the first Q has two numbers where it needs four
+		"M30 50H50A10 7 0 0 1 30 50Z": true,
+		"M0 0L10":                     false,
+		"L1 1":                        false,
+	} {
+		if got := checkPathData(d) == ""; got != want {
+			t.Errorf("%q: valid is %v, want %v (%s)", d, got, want, checkPathData(d))
+		}
+	}
+}
+
+// Every path of every drawing is path data a browser can read, across many
+// seeds because the drawings draw different shapes for different seeds. The
+// "Carinha" (Beam) drew its mouth as `Q40 56Q50 49` for half of them, which has
+// two numbers where a quadratic curve needs four.
+func TestEveryPathOfEveryDrawingIsReadableByABrowser(t *testing.T) {
+	t.Parallel()
+
+	paths := regexp.MustCompile(`<path\b[^>]*\sd="([^"]*)"`)
+	for _, style := range art.Styles() {
+		for n := 0; n < 300; n++ {
+			svg := art.Render(style, art.Input{Seed: "user:" + strings.Repeat("a", n%7) + string(rune('A'+n%26)) + string(rune('0'+n%10)) + strings.Repeat("b", n/26), Name: "Ada Lovelace"})
+			for _, found := range paths.FindAllStringSubmatch(svg, -1) {
+				if problem := checkPathData(found[1]); problem != "" {
+					t.Fatalf("%s: the path %q is not readable: %s", style, found[1], problem)
+				}
+			}
+		}
+	}
+}
+
+func TestTheCarinhasMouthIsAQuadraticCurveWithItsControlAndItsEndPoint(t *testing.T) {
+	t.Parallel()
+
+	mouth := regexp.MustCompile(`d="M30 49Q40 (\d+) 50 49"`)
+	smiles := 0
+	for n := 0; n < 200 && smiles < 5; n++ {
+		svg := art.Render(art.Beam, art.Input{Seed: "user:carinha-" + string(rune('A'+n%26)) + strings.Repeat("x", n/26), Name: "Ada"})
+		if strings.Contains(svg, `d="M30 49Q`) {
+			if !mouth.MatchString(svg) {
+				t.Fatalf("the mouth is not `M30 49Q40 N 50 49`: %s", svg)
+			}
+			smiles++
+		}
+	}
+	if smiles == 0 {
+		t.Fatal("no seed drew the curved mouth, so the test checked nothing")
+	}
+}

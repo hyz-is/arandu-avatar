@@ -1,5 +1,10 @@
 # Upgrade Guide
 
+## v0.3.2
+
+Nothing to do. The "Carinha" drawing now draws its mouth when it is the smile; a
+photo, a choice of drawing and every route are as they were.
+
 ## v0.3.1
 
 The script and the stylesheet are registered as `avatar.js` and `avatar.css`.

@@ -10,6 +10,23 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-26
+
+### Fixed
+
+- The "Carinha" drawing (`beam`) wrote its smiling mouth as
+  `M30 49Q40 56Q50 49`, which has two numbers where a quadratic curve needs four,
+  so a browser drew no mouth for half of the seeds and wrote `<path> attribute d:
+  Expected number` in the console of every page that listed the drawings (the
+  editor shows all eleven). The path is now `M30 49Q40 56 50 49`. The drawing a
+  seed gets is the same as before; only its mouth is now there.
+
+### Added
+
+- A test that reads the `d` of every path of every drawing, across 300 seeds each,
+  and refuses what a browser refuses (a command with the wrong count of numbers),
+  and one that pins the shape of the Carinha's mouth.
+
 ## [0.3.1] - 2026-11-24
 
 ### Changed
